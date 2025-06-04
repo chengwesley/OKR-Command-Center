@@ -1,0 +1,2600 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kdan OKR 系統</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 自定義字體 - Inter */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* 隱藏滾動條但保持滾動功能 */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;  /* IE and Edge */
+            scrollbar-width: none;  /* Firefox */
+        }
+        /* Toast 樣式 */
+        .toast {
+            transition: opacity 0.3s ease-in-out;
+            z-index: 1000; /* 確保 Toast 顯示在最上層 */
+            opacity: 1;
+        }
+        /* 進度條動畫 */
+        @keyframes fill-progress {
+            from { width: 0%; }
+            to { width: var(--progress-width); }
+        }
+        .progress-bar-fill {
+            animation: fill-progress 1s ease-out forwards;
+        }
+        /* Modal 動畫 */
+        .modal-content {
+            opacity: 0;
+            transform: scale(0.95);
+            transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+        }
+        .modal-content.modal-active {
+            opacity: 1;
+            transform: scale(1);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 flex h-screen overflow-hidden">
+    <!-- 登入模態框 -->
+    <div id="login-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center hidden z-50 modal-overlay">
+        <div class="bg-white rounded-lg shadow-xl p-8 w-full max-w-sm mx-auto transform transition-transform duration-300 scale-100 modal-content">
+            <h2 class="text-2xl font-bold text-indigo-700 mb-6 text-center">Kdan OKR 登入</h2>
+            <form id="login-form" class="space-y-4">
+                <div>
+                    <label for="login-email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <input type="email" id="login-email" name="email" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" required>
+                </div>
+                <div>
+                    <label for="login-password" class="block text-sm font-medium text-gray-700 mb-1">密碼</label>
+                    <input type="password" id="login-password" name="password" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" required>
+                </div>
+                <button type="submit" class="w-full bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50 font-semibold">登入</button>
+            </form>
+            <p class="text-sm text-gray-500 mt-4 text-center">請使用您在 Users 工作表中設定的 Email 和密碼登入。</p>
+        </div>
+    </div>
+
+    <!-- 側邊導航欄 -->
+    <aside id="sidebar" class="w-64 bg-white shadow-lg flex-shrink-0 transition-all duration-300 ease-in-out transform -translate-x-full md:translate-x-0 md:relative absolute z-30 h-full overflow-y-auto no-scrollbar">
+        <div class="p-6 border-b border-gray-200">
+            <h1 class="text-2xl font-bold text-indigo-700">Kdan OKR</h1>
+        </div>
+        <nav class="mt-8">
+            <!-- 側邊欄連結會根據權限動態顯示/隱藏 -->
+            <a href="#" class="flex items-center py-3 px-6 text-indigo-700 bg-indigo-50 border-l-4 border-indigo-500 font-semibold rounded-r-full my-1" data-action="show-section" data-section-id="dashboard">
+                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-9v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+                <span>儀表板</span>
+            </a>
+            <a href="#" class="flex items-center py-3 px-6 text-gray-600 hover:text-indigo-700 hover:bg-indigo-50 hover:border-l-4 hover:border-indigo-500 rounded-r-full my-1" data-action="show-section" data-section-id="my-okrs">
+                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <span>我的 OKR</span>
+            </a>
+            <a href="#" class="flex items-center py-3 px-6 text-gray-600 hover:text-indigo-700 hover:bg-indigo-50 hover:border-l-4 hover:border-indigo-500 rounded-r-full my-1" data-action="show-section" data-section-id="department-okrs">
+                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2H5a2 2 0 00-2 2v2M7 7h10"></path></svg>
+                <span>部門 OKR</span>
+            </a>
+            <a href="#" class="flex items-center py-3 px-6 text-gray-600 hover:text-indigo-700 hover:bg-indigo-50 hover:border-l-4 hover:border-indigo-500 rounded-r-full my-1" data-action="show-section" data-section-id="company-okrs">
+                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.55 23.55 0 0112 15c-1.606 0-3.174-.203-4.67-.604m0 0-2.582 2.582A3 3 0 013 20.25V7.25a3 3 0 013-3h12a3 3 0 013 3v12.996l-.325-.325z"></path></svg>
+                <span>公司 OKR</span>
+            </a>
+            <a href="#" class="flex items-center py-3 px-6 text-gray-600 hover:text-indigo-700 hover:bg-indigo-50 hover:border-l-4 hover:border-indigo-500 rounded-r-full my-1" data-action="show-section" data-section-id="reports">
+                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 2v-6m2 10H7m4 0h2a2 2 0 002-2V5a2 2 0 00-2-2H9a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                <span>報告</span>
+            </a>
+            <a href="#" class="flex items-center py-3 px-6 text-gray-600 hover:text-indigo-700 hover:bg-indigo-50 hover:border-l-4 hover:border-indigo-500 rounded-r-full my-1" data-action="show-section" data-section-id="admin">
+                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                <span>管理</span>
+            </a>
+        </nav>
+        <div class="p-6 border-t border-gray-200 mt-auto">
+            <button class="w-full bg-red-500 text-white py-2 px-4 rounded-md hover:bg-red-600 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50" data-action="logout">
+                登出
+            </button>
+        </div>
+    </aside>
+
+    <div class="flex-1 flex flex-col overflow-hidden">
+        <header class="flex items-center justify-between p-6 bg-white shadow-md z-20">
+            <button id="sidebar-toggle" class="md:hidden text-gray-500 focus:outline-none focus:text-gray-900 p-2 rounded-md hover:bg-gray-100">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+            </button>
+            <h2 id="current-section-title" class="text-xl font-semibold text-gray-700">儀表板</h2>
+            <div class="flex items-center">
+                <button class="relative p-2 text-gray-500 hover:text-gray-700 focus:outline-none mr-4 rounded-full hover:bg-gray-100">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+                    <span class="absolute top-0 right-0 inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-red-100 bg-red-600 rounded-full">3</span>
+                </button>
+                <div class="flex items-center ml-4">
+                    <img class="w-8 h-8 rounded-full mr-2 border-2 border-indigo-300" src="https://placehold.co/32x32/a78bfa/ffffff?text=U" alt="用戶頭像">
+                    <span class="font-medium text-gray-700" id="user-display-name">用戶</span>
+                </div>
+            </div>
+        </header>
+
+        <main class="flex-1 overflow-y-auto p-6 space-y-6 no-scrollbar">
+
+            <section id="dashboard-section" class="main-content-section active">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="dashboard-content">
+                    <!-- Content will be loaded dynamically -->
+                </div>
+            </section>
+
+            <section id="my-okrs-section" class="main-content-section hidden">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6">我的 OKR (2025 Q2)</h2>
+                <div class="bg-white rounded-lg shadow-md p-6" id="my-okrs-content">
+                    <!-- Content will be loaded dynamically -->
+                </div>
+            </section>
+
+            <section id="department-okrs-section" class="main-content-section hidden">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6">部門 OKR (2025 Q2)</h2>
+                <div class="bg-white rounded-lg shadow-md p-6" id="department-okrs-content">
+                    <!-- Content will be loaded dynamically -->
+                </div>
+            </section>
+
+            <section id="company-okrs-section" class="main-content-section hidden">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6">公司 OKR (2025 Q2)</h2>
+                <div class="bg-white rounded-lg shadow-md p-6" id="company-okrs-content">
+                    <!-- Content will be loaded dynamically -->
+                </div>
+            </section>
+
+            <section id="reports-section" class="main-content-section hidden">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6">報告中心</h2>
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <p class="text-gray-600">此處將提供各種 OKR 報告和分析圖表。</p>
+                    <ul class="mt-4 space-y-2 text-indigo-600">
+                        <li><a href="#" class="hover:underline" data-action="show-toast" data-message="公司整體績效報告功能待實現" data-type="info">公司整體績效報告</a></li>
+                        <li><a href="#" class="hover:underline" data-action="show-toast" data-message="部門OKR達成率趨勢功能待實現" data-type="info">部門 OKR 達成率趨勢</a></li>
+                        <li><a href="#" class="hover:underline" data-action="show-toast" data-message="個人OKR評估報告功能待實現" data-type="info">個人 OKR 評估報告</a></li>
+                    </ul>
+                </div>
+            </section>
+
+            <section id="admin-section" class="main-content-section hidden">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6">管理設定</h2>
+                <div class="bg-white rounded-lg shadow-md p-6" id="admin-content">
+                    <!-- Content will be loaded dynamically -->
+                </div>
+            </section>
+
+            <section id="objective-detail-section" class="main-content-section hidden">
+                <h2 id="detail-objective-title" class="text-2xl font-bold text-gray-800 mb-4"></h2>
+                <div class="bg-white rounded-lg shadow-md p-6 space-y-4">
+                    <p class="text-gray-600">週期: <span id="detail-period"></span></p>
+                    <h3 class="text-xl font-semibold text-gray-700">關鍵成果 (Key Result) 詳情</h3>
+                    <div class="border border-gray-200 rounded-lg p-4">
+                        <p id="detail-kr-description" class="font-medium text-gray-700 mb-2"></p>
+                        <p class="text-sm text-gray-500">起始值: <span id="detail-start-value"></span> / 目標值: <span id="detail-target-value"></span> / 當前值: <span id="detail-current-value"></span></p>
+                        <div class="w-full bg-gray-200 rounded-full h-2.5 mt-2 overflow-hidden">
+                            <div id="detail-progress-bar" class="bg-indigo-600 h-2.5 rounded-full progress-bar-fill" style="--progress-width: 0%;"></div>
+                        </div>
+                        <p class="text-sm text-gray-500 mt-1">進度: <span id="detail-progress-text">0%</span></p>
+                        <button class="mt-4 bg-indigo-500 text-white px-4 py-2 rounded-md hover:bg-indigo-600 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50" 
+                            data-action="open-update-modal" data-kr-id="" data-description="" data-start-value="0" data-target-value="0" data-current-value="0">更新此關鍵成果進度</button>
+                        <input type="hidden" id="detail-kr-id">
+                        <input type="hidden" id="detail-objective-id"> <!-- 新增 Objective ID 隱藏輸入框 -->
+                    </div>
+
+                    <h3 class="text-xl font-semibold text-gray-700 mt-6">評論與協作</h3>
+                    <div id="detail-comments-section" class="space-y-3">
+                        <div id="comments-list" class="space-y-3">
+                            <!-- Comments will be loaded dynamically -->
+                            <p class="text-gray-500">載入評論中...</p>
+                        </div>
+                        <div class="mt-4">
+                            <textarea id="detail-comment-text" class="w-full p-3 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" rows="3" placeholder="添加評論..."></textarea>
+                            <button id="detail-comment-submit" class="mt-2 bg-indigo-500 text-white px-4 py-2 rounded-md hover:bg-indigo-600 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50" data-action="add-comment">發布評論</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- 進度更新彈窗 Modal -->
+    <div id="update-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center hidden z-50 p-4 modal-overlay">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-auto transform transition-transform duration-300 scale-100 modal-content">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-semibold text-gray-800">更新關鍵成果進度</h3>
+                <button type="button" class="text-gray-500 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100 focus:outline-none" data-action="close-modal" data-modal-id="update-modal">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div class="mb-4">
+                <p class="text-gray-700 font-medium" id="modal-kr-description"></p>
+                <p class="text-sm text-gray-500">目標: <span id="modal-kr-target"></span></p>
+            </div>
+            <div class="mb-4">
+                <label for="current-value-input" class="block text-sm font-medium text-gray-700 mb-1">當前值</label>
+                <input type="number" id="current-value-input" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" placeholder="輸入當前值">
+            </div>
+            <div class="mb-6">
+                <label for="comment-input" class="block text-sm font-medium text-gray-700 mb-1">評論 (可選)</label>
+                <textarea id="comment-input" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" rows="3" placeholder="添加進度說明..."></textarea>
+            </div>
+            <div class="flex justify-end space-x-3">
+                <button type="button" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-opacity-50" data-action="close-modal" data-modal-id="update-modal">取消</button>
+                <button type="button" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50" data-action="handle-update-progress">確認更新</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 新增 Objective 模態框 -->
+    <div id="create-objective-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center hidden z-50 p-4 modal-overlay">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg mx-auto transform transition-transform duration-300 scale-100 overflow-y-auto max-h-[90vh] modal-content">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-semibold text-gray-800">新增 Objective</h3>
+                <button type="button" class="text-gray-500 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100 focus:outline-none" data-action="close-modal" data-modal-id="create-objective-modal">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <form id="create-objective-form" class="space-y-4">
+                <div>
+                    <label for="create-objective-title" class="block text-sm font-medium text-gray-700 mb-1">Objective 標題</label>
+                    <input type="text" id="create-objective-title" name="title" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" required>
+                </div>
+                <div>
+                    <label for="create-objective-description" class="block text-sm font-medium text-gray-700 mb-1">描述 (可選)</label>
+                    <textarea id="create-objective-description" name="description" rows="3" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"></textarea>
+                </div>
+                <div>
+                    <label for="create-objective-type" class="block text-sm font-medium text-gray-700 mb-1">Objective 類型</label>
+                    <select id="create-objective-type" name="type" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" required>
+                        <option value="My">個人</option>
+                        <option value="Department">部門</option>
+                        <option value="Company">公司</option>
+                    </select>
+                </div>
+                <div id="create-objective-department-div" class="hidden">
+                    <label for="create-objective-department" class="block text-sm font-medium text-gray-700 mb-1">所屬部門</label>
+                    <select id="create-objective-department" name="department" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500">
+                        <!-- 部門列表將由 JS 動態載入 -->
+                    </select>
+                </div>
+                <div id="create-objective-parent-div" class="hidden">
+                    <label for="create-objective-parent" class="block text-sm font-medium text-gray-700 mb-1">父級 Objective (對齊目標)</label>
+                    <select id="create-objective-parent" name="parent-objective" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500">
+                        <!-- 父級 Objective 列表將由 JS 動態載入 -->
+                    </select>
+                </div>
+                <div>
+                    <label for="create-objective-owner" class="block text-sm font-medium text-gray-700 mb-1">負責人</label>
+                    <select id="create-objective-owner" name="owner" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" required>
+                        <!-- 用戶列表將由 JS 動態載入 -->
+                    </select>
+                </div>
+                <div>
+                    <label for="create-objective-period" class="block text-sm font-medium text-gray-700 mb-1">週期</label>
+                    <input type="text" id="create-objective-period" name="period" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" value="2025 Q2" required>
+                </div>
+                <div class="flex justify-end space-x-3 mt-6">
+                    <button type="button" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-opacity-50" data-action="close-modal" data-modal-id="create-objective-modal">取消</button>
+                    <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50">新增 Objective</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 新增 Key Result 模態框 -->
+    <div id="create-kr-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center hidden z-50 p-4 modal-overlay">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg mx-auto transform transition-transform duration-300 scale-100 overflow-y-auto max-h-[90vh] modal-content">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-semibold text-gray-800">新增關鍵成果 (Key Result)</h3>
+                <button type="button" class="text-gray-500 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100 focus:outline-none" data-action="close-modal" data-modal-id="create-kr-modal">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <form id="create-kr-form" class="space-y-4">
+                <input type="hidden" id="create-kr-parent-objective-id" name="parent-objective-id">
+                <div>
+                    <label for="create-kr-description" class="block text-sm font-medium text-gray-700 mb-1">KR 描述</label>
+                    <textarea id="create-kr-description" name="kr-description" rows="2" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" required></textarea>
+                </div>
+                <div>
+                    <label for="create-kr-owner" class="block text-sm font-medium text-gray-700 mb-1">負責人</label>
+                    <select id="create-kr-owner" name="kr-owner" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" required>
+                        <!-- 用戶列表將由 JS 動態載入 -->
+                    </select>
+                </div>
+                <div>
+                    <label for="create-kr-metric-type" class="block text-sm font-medium text-gray-700 mb-1">衡量類型</label>
+                    <select id="create-kr-metric-type" name="kr-metric-type" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" required>
+                        <option value="Number">數字</option>
+                        <option value="Percentage">百分比</option>
+                        <option value="Currency">貨幣</option>
+                        <option value="Boolean">布林值 (是/否)</option>
+                    </select>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label for="create-kr-start-value" class="block text-sm font-medium text-gray-700 mb-1">起始值</label>
+                        <input type="number" id="create-kr-start-value" name="kr-start-value" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" value="0" required>
+                    </div>
+                    <div>
+                        <label for="create-kr-target-value" class="block text-sm font-medium text-gray-700 mb-1">目標值</label>
+                        <input type="number" id="create-kr-target-value" name="kr-target-value" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" required>
+                    </div>
+                </div>
+                <div>
+                    <label for="create-kr-unit" class="block text-sm font-medium text-gray-700 mb-1">單位 (例如：%, 個, 萬元)</label>
+                    <input type="text" id="create-kr-unit" name="kr-unit" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div class="flex justify-end space-x-3 mt-6">
+                    <button type="button" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-opacity-50" data-action="close-modal" data-modal-id="create-kr-modal">取消</button>
+                    <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50">新增關鍵成果</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 新增用戶模態框 -->
+    <div id="create-user-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center hidden z-50 p-4 modal-overlay">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg mx-auto transform transition-transform duration-300 scale-100 overflow-y-auto max-h-[90vh] modal-content">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-semibold text-gray-800">新增用戶</h3>
+                <button type="button" class="text-gray-500 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100 focus:outline-none" data-action="close-modal" data-modal-id="create-user-modal">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <form id="create-user-form" class="space-y-4">
+                <div>
+                    <label for="create-user-email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <input type="email" id="create-user-email" name="email" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" required>
+                </div>
+                <div>
+                    <label for="create-user-password" class="block text-sm font-medium text-gray-700 mb-1">密碼</label>
+                    <input type="password" id="create-user-password" name="password" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" required>
+                </div>
+                <div>
+                    <label for="create-user-name" class="block text-sm font-medium text-gray-700 mb-1">姓名 (可選)</label>
+                    <input type="text" id="create-user-name" name="name" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label for="create-user-role" class="block text-sm font-medium text-gray-700 mb-1">角色</label>
+                    <select id="create-user-role" name="role" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" required>
+                        <!-- Roles will be loaded dynamically -->
+                    </select>
+                </div>
+                <div>
+                    <label for="create-user-department" class="block text-sm font-medium text-gray-700 mb-1">部門 (可選)</label>
+                    <select id="create-user-department" name="department" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500">
+                        <!-- Departments will be loaded dynamically -->
+                    </select>
+                </div>
+                <div>
+                    <label for="create-user-short-id" class="block text-sm font-medium text-gray-700 mb-1">用戶短 ID (例如: u1, u2)</label>
+                    <input type="text" id="create-user-short-id" name="short-id" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" required>
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="create-user-is-active" name="is-active" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded">
+                    <label for="create-user-is-active" class="ml-2 block text-sm text-gray-900">啟用帳號</label>
+                </div>
+                <div class="flex justify-end space-x-3 mt-6">
+                    <button type="button" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-opacity-50" data-action="close-modal" data-modal-id="create-user-modal">取消</button>
+                    <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50">新增用戶</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 編輯用戶模態框 -->
+    <div id="edit-user-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center hidden z-50 p-4 modal-overlay">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg mx-auto transform transition-transform duration-300 scale-100 overflow-y-auto max-h-[90vh] modal-content">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-semibold text-gray-800">編輯用戶</h3>
+                <button type="button" class="text-gray-500 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100 focus:outline-none" data-action="close-modal" data-modal-id="edit-user-modal">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <form id="edit-user-form" class="space-y-4">
+                <div>
+                    <label for="edit-user-email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <input type="email" id="edit-user-email" name="email" class="w-full p-2 border border-gray-300 rounded-md bg-gray-100 cursor-not-allowed" readonly>
+                </div>
+                <div>
+                    <label for="edit-user-password" class="block text-sm font-medium text-gray-700 mb-1">新密碼 (留空則不修改)</label>
+                    <input type="password" id="edit-user-password" name="password" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label for="edit-user-name" class="block text-sm font-medium text-gray-700 mb-1">姓名 (可選)</label>
+                    <input type="text" id="edit-user-name" name="name" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label for="edit-user-role" class="block text-sm font-medium text-gray-700 mb-1">角色</label>
+                    <select id="edit-user-role" name="role" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" required>
+                        <!-- Roles will be loaded dynamically -->
+                    </select>
+                </div>
+                <div>
+                    <label for="edit-user-department" class="block text-sm font-medium text-gray-700 mb-1">部門 (可選)</label>
+                    <select id="edit-user-department" name="department" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500">
+                        <!-- Departments will be loaded dynamically -->
+                    </select>
+                </div>
+                <div>
+                    <label for="edit-user-short-id" class="block text-sm font-medium text-gray-700 mb-1">用戶短 ID</label>
+                    <input type="text" id="edit-user-short-id" name="short-id" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" required>
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="edit-user-is-active" name="is-active" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded">
+                    <label for="edit-user-is-active" class="ml-2 block text-sm text-gray-900">啟用帳號</label>
+                </div>
+                <div class="flex justify-end space-x-3 mt-6">
+                    <button type="button" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-opacity-50" data-action="close-modal" data-modal-id="edit-user-modal">取消</button>
+                    <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50">保存修改</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 新增部門模態框 -->
+    <div id="create-department-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center hidden z-50 p-4 modal-overlay">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg mx-auto transform transition-transform duration-300 scale-100 overflow-y-auto max-h-[90vh] modal-content">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-semibold text-gray-800">新增部門</h3>
+                <button type="button" class="text-gray-500 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100 focus:outline-none" data-action="close-modal" data-modal-id="create-department-modal">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <form id="create-department-form" class="space-y-4">
+                <div>
+                    <label for="create-department-id" class="block text-sm font-medium text-gray-700 mb-1">部門 ID (例如: PROD, MKT)</label>
+                    <input type="text" id="create-department-id" name="dept-id" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" required>
+                </div>
+                <div>
+                    <label for="create-department-name" class="block text-sm font-medium text-gray-700 mb-1">部門名稱 (例如: 產品部)</label>
+                    <input type="text" id="create-department-name" name="dept-name" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" required>
+                </div>
+                <div class="flex justify-end space-x-3 mt-6">
+                    <button type="button" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-opacity-50" data-action="close-modal" data-modal-id="create-department-modal">取消</button>
+                    <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50">新增部門</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 編輯部門模態框 -->
+    <div id="edit-department-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center hidden z-50 p-4 modal-overlay">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg mx-auto transform transition-transform duration-300 scale-100 overflow-y-auto max-h-[90vh] modal-content">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-semibold text-gray-800">編輯部門</h3>
+                <button type="button" class="text-gray-500 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100 focus:outline-none" data-action="close-modal" data-modal-id="edit-department-modal">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <form id="edit-department-form" class="space-y-4">
+                <div>
+                    <label for="edit-department-id" class="block text-sm font-medium text-gray-700 mb-1">部門 ID</label>
+                    <input type="text" id="edit-department-id" name="dept-id" class="w-full p-2 border border-gray-300 rounded-md bg-gray-100 cursor-not-allowed" readonly>
+                </div>
+                <div>
+                    <label for="edit-department-name" class="block text-sm font-medium text-gray-700 mb-1">部門名稱</label>
+                    <input type="text" id="edit-department-name" name="dept-name" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" required>
+                </div>
+                <div class="flex justify-end space-x-3 mt-6">
+                    <button type="button" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-opacity-50" data-action="close-modal" data-modal-id="edit-department-modal">取消</button>
+                    <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50">保存修改</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast 容器 -->
+    <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2"></div>
+</body>
+<script>
+    // 在自定義登入模式下，這些變數在初始載入時是空的
+    // 登入成功後，會從 localStorage 獲取或由登入函數設置
+    let USER_EMAIL = '';
+    let USER_ROLE = '';
+    let USER_ID = ''; // 用戶簡短 ID
+    let SESSION_TOKEN = ''; // 會話令牌
+
+    // 全局變數，用於在不同函數間傳遞數據
+    let currentUpdatingKrId = '';
+    let currentUpdatingKrStart = 0;
+    let currentUpdatingKrTarget = 0;
+    let currentUpdatingKrCurrent = 0;
+    let userDepartment = ''; // 用戶部門，從後端獲取
+
+    // DOM 元素引用變數，在 DOMContentLoaded 中初始化
+    let sidebar, sidebarToggle, mainContentSections, currentSectionTitle, userDisplayName,
+        updateModal, modalKrDescription, modalKrTarget, currentValueInput, commentInput,
+        toastContainer, detailKrIdInput, createObjectiveModal, createKrModal,
+        createObjectiveForm, createKrForm,
+        createObjectiveOwnerSelect, createObjectiveTypeSelect, createObjectiveParentSelect, createObjectiveDepartmentSelect,
+        createKrOwnerSelect, createKrMetricTypeSelect, createKrParentObjectiveIdInput,
+        detailObjectiveIdInput, detailCommentsList, detailCommentTextInput, detailCommentSubmitButton,
+        loginModal, loginForm, loginEmailInput, loginPasswordInput,
+        adminUsersContent, adminDepartmentsContent,
+        createUserModal, createUserForm, createUserEmailInput, createUserPasswordInput, createUserRoleSelect, createUserDepartmentSelect, createUserNameInput, createUserShortIdInput, createUserIsActiveCheckbox,
+        createDepartmentModal, createDepartmentForm, createDepartmentIdInput, createDepartmentNameInput,
+        editUserModal, editUserForm, editUserEmailInput, editUserPasswordInput, editUserRoleSelect, editUserDepartmentSelect, editUserNameInput, editUserShortIdInput, editUserIsActiveCheckbox,
+        editDepartmentModal, editDepartmentForm, editDepartmentIdInput, editDepartmentNameInput,
+        confirmModal, confirmModalTitle, confirmModalMessage, confirmModalConfirmButton; // 新增確認模態框相關變數
+
+
+    // 權限驗證相關函數
+    const ROLE_PERMISSIONS = {
+        'Chairman': ['dashboard', 'my-okrs', 'department-okrs', 'company-okrs', 'reports', 'admin'],
+        'OKR_Admin': ['dashboard', 'my-okrs', 'department-okrs', 'company-okrs', 'reports', 'admin'],
+        'HR_Admin': ['dashboard', 'my-okrs', 'department-okrs', 'company-okrs', 'reports', 'admin'],
+        'Department_Manager': ['dashboard', 'my-okrs', 'department-okrs', 'company-okrs', 'reports'],
+        'CLevel_Exec': ['dashboard', 'my-okrs', 'department-okrs', 'company-okrs', 'reports'],
+        'Employee': ['dashboard', 'my-okrs', 'department-okrs']
+    };
+
+    /**
+     * 檢查用戶是否有權限訪問特定頁面
+     * @param {string} sectionId - 頁面區塊的 ID
+     * @returns {boolean} - 是否有權限
+     */
+    function hasPermission(sectionId) {
+        if (!USER_ROLE || !ROLE_PERMISSIONS[USER_ROLE]) {
+            console.error('無效的用戶角色或未定義權限:', USER_ROLE);
+            return false;
+        }
+        return ROLE_PERMISSIONS[USER_ROLE].includes(sectionId);
+    }
+
+    /**
+     * 設置側邊欄開關的事件監聽器
+     */
+    function setupSidebarToggle() {
+        if (sidebar && sidebarToggle) {
+            sidebarToggle.addEventListener('click', () => {
+                sidebar.classList.toggle('-translate-x-full');
+            });
+        }
+    }
+
+    /**
+     * 顯示 Toast 通知
+     * @param {string} message - 通知訊息
+     * @param {string} type - 通知類型 ('success', 'error', 'info')
+     */
+    function showToast(message, type = 'success') {
+        const toast = document.createElement('div');
+        toast.className = `toast fixed top-4 right-4 p-4 rounded-md shadow-lg text-white ${type === 'success' ? 'bg-green-600' : type === 'info' ? 'bg-blue-600' : 'bg-red-600'}`;
+        toast.innerText = message;
+        toastContainer.appendChild(toast);
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+
+    /**
+     * 顯示指定區塊並載入數據
+     * @param {string} sectionId - 要顯示的區塊 ID
+     */
+    async function showSection(sectionId) {
+        if (!hasPermission(sectionId)) {
+            showToast('您沒有權限訪問此頁面', 'error');
+            return;
+        }
+
+        mainContentSections.forEach(section => {
+            section.classList.add('hidden');
+            section.classList.remove('active');
+        });
+        const activeSection = document.getElementById(`${sectionId}-section`);
+        activeSection.classList.remove('hidden');
+        activeSection.classList.add('active');
+
+        const sectionTitles = {
+            'dashboard': '儀表板',
+            'my-okrs': '我的 OKR',
+            'department-okrs': '部門 OKR',
+            'company-okrs': '公司 OKR',
+            'reports': '報告中心',
+            'admin': '管理設定',
+            'objective-detail': 'OKR 詳細資訊'
+        };
+        currentSectionTitle.innerText = sectionTitles[sectionId] || '未知頁面';
+
+        if (window.innerWidth < 768) {
+            if (sidebar) {
+                sidebar.classList.add('-translate-x-full');
+            }
+        }
+
+        // 更新側邊欄連結的 active 樣式
+        document.querySelectorAll('#sidebar nav a').forEach(link => {
+            link.classList.remove('text-indigo-700', 'bg-indigo-50', 'border-l-4', 'border-indigo-500', 'font-semibold');
+            link.classList.add('text-gray-600', 'hover:text-indigo-700', 'hover:bg-indigo-50', 'hover:border-l-4', 'hover:border-indigo-500');
+        });
+        const currentLink = document.querySelector(`#sidebar nav a[data-section-id="${sectionId}"]`); // 使用 data-section-id
+        if (currentLink) {
+            currentLink.classList.add('text-indigo-700', 'bg-indigo-50', 'border-l-4', 'border-indigo-500', 'font-semibold');
+            currentLink.classList.remove('text-gray-600', 'hover:text-indigo-700', 'hover:bg-indigo-50', 'hover:border-l-4', 'hover:border-indigo-500');
+        }
+
+
+        switch (sectionId) {
+            case 'dashboard':
+            case 'my-okrs':
+            case 'department-okrs':
+            case 'company-okrs':
+                await loadOKRsData(sectionId);
+                break;
+            case 'admin':
+                await loadAdminSection(); // Admin 頁面也需要載入數據
+                break;
+            // 'objective-detail' 頁面由 showObjectiveDetail 函數直接處理數據填充
+        }
+    }
+
+    /**
+     * 從後端載入 OKR 數據並渲染到指定區塊
+     * @param {string} sectionId - 要渲染數據的區塊 ID
+     */
+    async function loadOKRsData(sectionId) {
+        const contentDiv = document.getElementById(`${sectionId}-content`);
+        if (!contentDiv) return;
+
+        // 顯示載入動畫
+        contentDiv.innerHTML = `
+            <div class="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 rounded-md animate-pulse" role="alert">
+                <p>載入數據中...</p>
+            </div>
+        `;
+
+        try {
+            google.script.run
+                .withSuccessHandler(function(jsonStringResult) {
+                    let result;
+                    try {
+                        result = JSON.parse(jsonStringResult); // 解析 JSON 字串
+                    } catch (e) {
+                        contentDiv.innerHTML = `
+                            <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md" role="alert">
+                                <p>載入失敗: 無法解析後端數據。錯誤: ${e.message}</p>
+                                <button class="mt-2 bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600" data-action="show-section" data-section-id="${sectionId}">重試</button>
+                            </div>
+                        `;
+                        console.error("Apps Script getOKRs returned invalid JSON:", jsonStringResult, e);
+                        return;
+                    }
+
+                    // 檢查結果是否有效或包含錯誤訊息
+                    if (!result || result.error) {
+                        contentDiv.innerHTML = `
+                            <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md" role="alert">
+                                <p>載入失敗: ${result?.error || '後端未返回有效數據'}</p>
+                                <button class="mt-2 bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600" data-action="show-section" data-section-id="${sectionId}">重試</button>
+                            </div>
+                        `;
+                        console.error("getOKRs error:", result?.error);
+                        return;
+                    }
+                    renderOKRs(sectionId, result); // 渲染數據
+                })
+                .withFailureHandler(function(error) {
+                    contentDiv.innerHTML = `
+                        <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md" role="alert">
+                            <p>與後端通訊失敗: ${error.message}</p>
+                            <button class="mt-2 bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600" data-action="show-section" data-section-id="${sectionId}">重試</button>
+                        </div>
+                    `;
+                    console.error("google.script.run failure:", error);
+                })
+                .getOKRs(SESSION_TOKEN); // 呼叫 Code.gs 中的 getOKRs 函數，傳遞會話令牌
+        } catch (error) {
+            contentDiv.innerHTML = `
+                <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md" role="alert">
+                    <p>發生錯誤: ${error.message}</p>
+                    <button class="mt-2 bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600" data-action="show-section" data-section-id="${sectionId}">重試</button>
+                </div>
+            `;
+        }
+    }
+
+    /**
+     * 渲染 OKR 數據到指定區塊的實際邏輯
+     * @param {string} sectionId - 要渲染的區塊 ID
+     * @param {Object} data - 從後端獲取的 OKR 數據
+     */
+    function renderOKRs(sectionId, data) {
+        const contentDiv = document.getElementById(`${sectionId}-content`);
+        let htmlContent = '';
+
+        // 輔助函數：驗證並提供 OKR 物件的預設值，處理潛在的 undefined/null
+        const validateOKR = (obj) => ({
+            ID: obj?.ID || '', // 使用可選鏈操作符和邏輯或
+            Title: obj?.Title || '未定義標題',
+            Description: obj?.Description || '',
+            OwnerEmail: obj?.OwnerEmail || '無負責人',
+            Period: obj?.Period || 'N/A',
+            Progress: isValidNumber(obj?.Progress) ? parseFloat(obj.Progress) : 0,
+            Status: obj?.Status || '未知',
+            Department: obj?.Department || '未知部門', // 確保有 Department 屬性
+            objective_type: obj?.objective_type || '未知', // 新增 Objective 類型
+            ParentObjectiveID: obj?.ParentObjectiveID || '', // 父級 Objective ID
+            // Key Result 相關屬性
+            MetricType: obj?.MetricType || '',
+            StartValue: isValidNumber(obj?.StartValue) ? parseFloat(obj.StartValue) : 0,
+            TargetValue: isValidNumber(obj?.TargetValue) ? parseFloat(obj.TargetValue) : 0,
+            CurrentValue: isValidNumber(obj?.CurrentValue) ? parseFloat(obj.CurrentValue) : 0,
+            Unit: obj?.Unit || '',
+            ConfidenceLevel: obj?.ConfidenceLevel || 'On Track',
+            LastUpdated: obj?.LastUpdated || 'N/A',
+            LastUpdatedByEmail: obj?.LastUpdatedByEmail || 'N/A',
+            Comment: obj?.Comment || '',
+            // 嵌套的 KRs 陣列，確保是陣列
+            krs: Array.isArray(obj?.krs) ? obj.krs.map(kr => validateOKR(kr)) : []
+        });
+
+        if (sectionId === 'dashboard') {
+            const companyOKR = (Array.isArray(data.companyOkrs) && data.companyOkrs[0]) ? validateOKR(data.companyOkrs[0]) : { Title: '無公司 OKR', Progress: 0 };
+            const myKRsToUpdate = (Array.isArray(data.myOkrs) ? data.myOkrs : [])
+                .flatMap(obj => (Array.isArray(obj?.krs) ? obj.krs : []).map(kr => validateOKR(kr)))
+                .filter(kr => isValidNumber(kr.Progress) && parseFloat(kr.Progress) < 100 && kr.OwnerEmail === USER_EMAIL);
+
+            const deptProgress = (Array.isArray(data.departmentOkrs) ? data.departmentOkrs : []).reduce((acc, obj) => {
+                const dept = obj?.Department || '未知部門';
+                acc[dept] = acc[dept] || { total: 0, count: 0 };
+                acc[dept].total += isValidNumber(obj?.Progress) ? parseFloat(obj.Progress) : 0;
+                acc[dept].count += 1;
+                return acc;
+            }, {});
+            const deptHealth = Object.entries(deptProgress).map(([dept, { total, count }]) => {
+                const avg = count > 0 ? total / count : 0;
+                let statusIcon = '';
+                let statusColor = '';
+                if (avg >= 80) { statusIcon = '✓'; statusColor = 'green'; }
+                else if (avg >= 50) { statusIcon = '⚠️'; statusColor = 'yellow'; }
+                else { statusIcon = '✗'; statusColor = 'red'; }
+                return { dept, avg, statusIcon, statusColor };
+            });
+
+            htmlContent = `
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div class="bg-white rounded-lg shadow-md p-6 transform transition-transform duration-300 hover:scale-105">
+                        <h3 class="text-xl font-semibold text-gray-700 mb-4">公司 OKR 總覽 (2025 Q2)</h3>
+                        <div class="flex items-center justify-between mb-4">
+                            <span class="text-4xl font-bold text-indigo-600">${companyOKR.Progress.toFixed(0)}%</span>
+                            <span class="text-sm text-gray-500">平均達成率</span>
+                        </div>
+                        <div class="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                            <div class="bg-indigo-600 h-2.5 rounded-full progress-bar-fill" style="--progress-width: ${companyOKR.Progress}%;"></div>
+                        </div>
+                        <p class="text-sm text-gray-500 mt-2">目標：${companyOKR.Title}</p>
+                    </div>
+
+                    <div class="bg-white rounded-lg shadow-md p-6 col-span-1 md:col-span-2 transform transition-transform duration-300 hover:scale-105">
+                        <h3 class="text-xl font-semibold text-gray-700 mb-4">部門 OKR 健康度</h3>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                            ${deptHealth.length > 0 ? deptHealth.map(({ dept, avg, statusIcon, statusColor }) => `
+                                <div class="bg-${statusColor}-50 rounded-lg p-4 flex items-center justify-between transition-colors duration-200 hover:bg-${statusColor}-100">
+                                    <div>
+                                        <p class="font-semibold text-${statusColor}-700">${dept}</p>
+                                        <p class="text-sm text-${statusColor}-600">${avg.toFixed(0)}% 達成</p>
+                                    </div>
+                                    <span class="text-${statusColor}-500 text-2xl">${statusIcon}</span>
+                                </div>
+                            `).join('') : '<p class="text-gray-500">無部門 OKR 數據</p>'}
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-lg shadow-md p-6 transform transition-transform duration-300 hover:scale-105">
+                        <h3 class="text-xl font-semibold text-gray-700 mb-4">我的待辦事項</h3>
+                        <ul class="space-y-4">
+                            ${myKRsToUpdate.map(kr => `
+                                <li class="flex items-center justify-between p-3 rounded-md bg-gray-50 hover:bg-gray-100 transition-colors duration-200">
+                                    <div>
+                                        <p class="font-medium text-gray-800">KR: ${kr.Description || '未定義'}</p>
+                                        <p class="text-sm text-gray-600">當前: ${kr.CurrentValue ?? 'N/A'} / 目標: ${kr.TargetValue ?? 'N/A'}</p>
+                                    </div>
+                                    <button class="bg-indigo-500 text-white px-3 py-1 rounded-md text-sm hover:bg-indigo-600 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50"
+                                        data-action="open-update-modal"
+                                        data-kr-id="${kr.ID}"
+                                        data-description="${kr.Description || ''}"
+                                        data-start-value="${kr.StartValue ?? 0}"
+                                        data-target-value="${kr.TargetValue ?? 0}"
+                                        data-current-value="${kr.CurrentValue ?? 0}">更新進度</button>
+                                </li>
+                            `).join('')}
+                            ${myKRsToUpdate.length === 0 ? '<p class="text-gray-500">所有 KR 已更新或已完成！</p>' : ''}
+                        </ul>
+                    </div>
+                </div>
+            `;
+        } else if (sectionId === 'my-okrs') {
+            htmlContent = `
+                <div class="flex justify-end mb-4">
+                    <button class="bg-indigo-600 text-white px-4 py-2 rounded-md shadow-md hover:bg-indigo-700 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50"
+                        data-action="open-create-objective-modal" data-objective-type="My">新增我的 Objective</button>
+                </div>
+                <div class="space-y-6">
+                    ${(Array.isArray(data.myOkrs) ? data.myOkrs.filter(obj => obj.OwnerEmail === USER_EMAIL) : []).map(obj => {
+                        const validObj = validateOKR(obj);
+                        return `
+                            <div class="bg-white rounded-lg shadow-md p-6 transform transition-transform duration-300 hover:scale-[1.01]">
+                                <div class="flex items-center justify-between cursor-pointer" data-action="toggle-okr" data-obj-id="${validObj.ID}">
+                                    <h3 class="text-lg font-semibold text-gray-700 flex-1">O: ${validObj.Title}</h3>
+                                    <div class="flex items-center space-x-4">
+                                        <span class="text-sm font-medium text-indigo-600">${validObj.Progress.toFixed(0)}% 達成</span>
+                                        <div class="w-24 bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                                            <div class="bg-indigo-600 h-2.5 rounded-full progress-bar-fill" style="--progress-width: ${validObj.Progress}%;"></div>
+                                        </div>
+                                        <span class="text-sm text-gray-500">狀態: <span class="${validObj.Status === '良好' ? 'text-green-600' : 'text-yellow-600'}">${validObj.Status}</span></span>
+                                        <svg class="w-5 h-5 text-gray-500 transform transition-transform duration-200" id="arrow-${validObj.ID}" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                                    </div>
+                                </div>
+                                <div id="content-${validObj.ID}" class="mt-4 space-y-4 hidden">
+                                    <div class="border-t border-gray-200 pt-4">
+                                        <h4 class="font-medium text-gray-700 mb-2">關鍵成果 (Key Results):</h4>
+                                        <ul class="space-y-3">
+                                            ${(Array.isArray(validObj.krs) ? validObj.krs : []).map(kr => `
+                                                <li class="flex items-center justify-between bg-gray-50 p-3 rounded-md hover:bg-gray-100 transition-colors duration-200">
+                                                    <p class="flex-1 text-gray-800">KR: ${kr.Description || '未定義'}</p>
+                                                    <div class="flex items-center space-x-3">
+                                                        <span class="text-sm text-gray-600">當前: ${kr.CurrentValue ?? 'N/A'} / 目標: ${kr.TargetValue ?? 'N/A'}</span>
+                                                        <div class="w-20 bg-gray-200 rounded-full h-2 overflow-hidden">
+                                                            <div class="bg-blue-500 h-2 rounded-full progress-bar-fill" style="--progress-width: ${kr.Progress ?? 0}%;"></div>
+                                                        </div>
+                                                        <button class="text-indigo-600 hover:underline text-sm focus:outline-none"
+                                                            data-action="open-update-modal"
+                                                            data-kr-id="${kr.ID}"
+                                                            data-description="${kr.Description || ''}"
+                                                            data-start-value="${kr.StartValue ?? 0}"
+                                                            data-target-value="${kr.TargetValue ?? 0}"
+                                                            data-current-value="${kr.CurrentValue ?? 0}">更新</button>
+                                                        <button class="text-gray-500 hover:underline text-sm focus:outline-none"
+                                                            data-action="show-objective-detail"
+                                                            data-objective-id="${validObj.ID}"
+                                                            data-objective-title="${validObj.Title}"
+                                                            data-kr-id="${kr.ID}"
+                                                            data-kr-description="${kr.Description || ''}"
+                                                            data-kr-start-value="${kr.StartValue ?? 0}"
+                                                            data-kr-target-value="${kr.TargetValue ?? 0}"
+                                                            data-kr-current-value="${kr.CurrentValue ?? 0}"
+                                                            data-kr-progress="${kr.Progress ?? 0}"
+                                                            data-period="2025 Q2">詳情</button>
+                                                    </div>
+                                                </li>
+                                            `).join('')}
+                                        </ul>
+                                        <div class="flex justify-end mt-4 space-x-3">
+                                            <button class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
+                                                data-action="open-create-kr-modal" data-parent-objective-id="${validObj.ID}">新增關鍵成果</button>
+                                            ${validObj.Status === 'Draft && USER_ROLE !== 'Chairman' ? `
+                                                <button class="bg-indigo-500 text-white px-4 py-2 rounded-md hover:bg-indigo-600 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50"
+                                                    data-action="submit-objective-for-approval" data-objective-id="${validObj.ID}">提交審批</button>
+                                            ` : ''}
+                                            ${(validObj.Status === 'Draft' || validObj.Status === 'Pending Chairman Approval') && (USER_ROLE === 'OKR_Admin' || USER_ROLE === 'Chairman') ? `
+                                                <button class="bg-yellow-500 text-white px-4 py-2 rounded-md hover:bg-yellow-600 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-opacity-50"
+                                                    data-action="open-edit-objective-modal" data-objective-id="${validObj.ID}" data-objective-type="${validObj.objective_type}">編輯 Objective</button>
+                                                <button class="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-600 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50"
+                                                    data-action="delete-objective" data-objective-id="${validObj.ID}" data-objective-title="${validObj.Title}">刪除 Objective</button>
+                                            ` : ''}
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                    }).join('') : '<p class="text-gray-500">無個人 OKR 數據</p>'}
+                </div>
+            `;
+        } else if (sectionId === 'department-okrs') {
+            htmlContent = `
+                <div class="flex justify-end mb-4">
+                    <button class="bg-indigo-600 text-white px-4 py-2 rounded-md shadow-md hover:bg-indigo-700 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50"
+                        data-action="open-create-objective-modal" data-objective-type="Department">新增部門 Objective</button>
+                </div>
+                <p class="text-gray-600 mb-4">部門: ${userDepartment || '未知'}</p>
+                <div class="mt-4 space-y-4">
+                    ${(Array.isArray(data.departmentOkrs) ? data.departmentOkrs.filter(obj => obj.Department === userDepartment || USER_ROLE === 'Chairman' || USER_ROLE === 'OKR_Admin' || USER_ROLE === 'CLevel_Exec') : []).map(obj => {
+                        const validObj = validateOKR(obj);
+                        return `
+                            <div class="bg-white rounded-lg shadow-md p-6 transform transition-transform duration-300 hover:scale-[1.01]">
+                                <h3 class="text-lg font-semibold text-gray-700">${validObj.Title}</h3>
+                                <p class="text-sm text-gray-500 mt-1">部門: ${validObj.Department || '未知'} | 負責人: ${validObj.OwnerEmail} | 進度: ${validObj.Progress.toFixed(0)}% | 狀態: ${validObj.Status}</p>
+                                <div class="flex justify-end mt-3 space-x-3">
+                                    <button class="bg-indigo-500 text-white px-4 py-2 rounded-md hover:bg-indigo-600 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50"
+                                        data-action="show-objective-detail"
+                                        data-objective-id="${validObj.ID}"
+                                        data-objective-title="${validObj.Title}"
+                                        data-kr-id="${validObj.krs[0]?.ID || ''}"
+                                        data-kr-description="${validObj.krs[0]?.Description || ''}"
+                                        data-kr-start-value="${validObj.krs[0]?.StartValue ?? 0}"
+                                        data-kr-target-value="${validObj.krs[0]?.TargetValue ?? 0}"
+                                        data-kr-current-value="${validObj.krs[0]?.CurrentValue ?? 0}"
+                                        data-kr-progress="${validObj.krs[0]?.Progress ?? 0}"
+                                        data-period="2025 Q2">查看詳情</button>
+                                    ${(validObj.Status === 'Draft' || validObj.Status === 'Pending Chairman Approval') && (USER_ROLE === 'OKR_Admin' || USER_ROLE === 'Chairman' || USER_ROLE === 'Department_Manager') ? `
+                                        <button class="bg-yellow-500 text-white px-4 py-2 rounded-md hover:bg-yellow-600 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-opacity-50"
+                                            data-action="open-edit-objective-modal" data-objective-id="${validObj.ID}" data-objective-type="${validObj.objective_type}">編輯 Objective</button>
+                                        <button class="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-600 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50"
+                                            data-action="delete-objective" data-objective-id="${validObj.ID}" data-objective-title="${validObj.Title}">刪除 Objective</button>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        `;
+                    }).join('') : '<p class="text-gray-500">無部門 OKR 數據</p>'}
+                </div>
+            `;
+        } else if (sectionId === 'company-okrs') {
+            htmlContent = `
+                <div class="flex justify-end mb-4">
+                    <button class="bg-indigo-600 text-white px-4 py-2 rounded-md shadow-md hover:bg-indigo-700 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50"
+                        data-action="open-create-objective-modal" data-objective-type="Company">新增公司 Objective</button>
+                </div>
+                <p class="text-gray-600 mb-4">公司層級 OKR 列表</p>
+                <div class="mt-4 space-y-4">
+                    ${(Array.isArray(data.companyOkrs) && data.companyOkrs.length > 0) ? data.companyOkrs.map(obj => {
+                        const validObj = validateOKR(obj);
+                        const childDepartments = (Array.isArray(data.departmentOkrs) ? data.departmentOkrs : [])
+                            .filter(deptObj => deptObj.ParentObjectiveID === validObj.ID)
+                            .map(deptObj => deptObj.Department || '未知部門');
+
+                        return `
+                            <div class="bg-white rounded-lg shadow-md p-6 transform transition-transform duration-300 hover:scale-[1.01]">
+                                <h3 class="text-lg font-semibold text-gray-700">${validObj.Title}</h3>
+                                <p class="text-sm text-gray-500 mt-1">負責人: ${validObj.OwnerEmail} | 進度: ${validObj.Progress.toFixed(0)}% | 狀態: ${validObj.Status}</p>
+                                ${childDepartments.length > 0 ? `<p class="text-sm text-gray-600 mt-1">承接部門: ${childDepartments.join(', ')}</p>` : '<p class="text-sm text-gray-500 mt-1">無承接部門</p>'}
+                                <div class="flex justify-end mt-3 space-x-3">
+                                    <button class="mt-3 bg-indigo-500 text-white px-4 py-2 rounded-md hover:bg-indigo-600 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50"
+                                        data-action="show-objective-detail"
+                                        data-objective-id="${validObj.ID}"
+                                        data-objective-title="${validObj.Title}"
+                                        data-kr-id="${validObj.krs[0]?.ID || ''}"
+                                        data-kr-description="${validObj.krs[0]?.Description || ''}"
+                                        data-kr-start-value="${validObj.krs[0]?.StartValue ?? 0}"
+                                        data-kr-target-value="${validObj.krs[0]?.TargetValue ?? 0}"
+                                        data-kr-current-value="${validObj.krs[0]?.CurrentValue ?? 0}"
+                                        data-kr-progress="${validObj.krs[0]?.Progress ?? 0}"
+                                        data-period="2025 Q2">查看詳情</button>
+                                    ${(validObj.Status === 'Draft' || validObj.Status === 'Pending Chairman Approval') && (USER_ROLE === 'OKR_Admin' || USER_ROLE === 'Chairman') ? `
+                                        <button class="bg-yellow-500 text-white px-4 py-2 rounded-md hover:bg-yellow-600 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-opacity-50"
+                                            data-action="open-edit-objective-modal" data-objective-id="${validObj.ID}" data-objective-type="${validObj.objective_type}">編輯 Objective</button>
+                                        <button class="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-600 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50"
+                                            data-action="delete-objective" data-objective-id="${validObj.ID}" data-objective-title="${validObj.Title}">刪除 Objective</button>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        `;
+                    }).join('') : '<p class="text-gray-500">無公司 OKR 數據</p>'}
+                </div>
+            `;
+        }
+
+        contentDiv.innerHTML = htmlContent;
+    }
+
+    // loadAdminSection 和相關函數
+    async function loadAdminSection() {
+        const contentDiv = document.getElementById('admin-content');
+        if (!contentDiv) return;
+
+        contentDiv.innerHTML = `
+            <div class="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 rounded-md animate-pulse" role="alert">
+                <p>載入管理數據中...</p>
+            </div>
+        `;
+
+        if (USER_ROLE === 'Chairman' || USER_ROLE === 'OKR_Admin') {
+            // 顯示管理員專用功能
+            contentDiv.innerHTML = `
+                <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-4">待審批的 Objective</h3>
+                    <div id="pending-objectives-list" class="space-y-4">
+                        <p class="text-gray-500">載入待審批數據中...</p>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-4">用戶管理</h3>
+                    <div class="flex justify-end mb-4">
+                        <button class="bg-indigo-600 text-white px-4 py-2 rounded-md shadow-md hover:bg-indigo-700 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50"
+                            data-action="open-create-user-modal">新增用戶</button>
+                    </div>
+                    <div id="user-list-content" class="space-y-4">
+                        <p class="text-gray-500">載入用戶數據中...</p>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-4">部門管理</h3>
+                    <div class="flex justify-end mb-4">
+                        <button class="bg-indigo-600 text-white px-4 py-2 rounded-md shadow-md hover:bg-indigo-700 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50"
+                            data-action="open-create-department-modal">新增部門</button>
+                    </div>
+                    <div id="department-list-content" class="space-y-4">
+                        <p class="text-gray-500">載入部門數據中...</p>
+                    </div>
+                </div>
+            `;
+            await loadPendingObjectives(document.getElementById('pending-objectives-list'));
+            await loadUserManagementSection();
+            await loadDepartmentManagementSection();
+        } else if (USER_ROLE === 'HR_Admin') {
+            // HR 管理員專用功能
+            contentDiv.innerHTML = `
+                <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-4">用戶管理</h3>
+                    <div class="flex justify-end mb-4">
+                        <button class="bg-indigo-600 text-white px-4 py-2 rounded-md shadow-md hover:bg-indigo-700 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50"
+                            data-action="open-create-user-modal">新增用戶</button>
+                    </div>
+                    <div id="user-list-content" class="space-y-4">
+                        <p class="text-gray-500">載入用戶數據中...</p>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-4">部門管理</h3>
+                    <div class="flex justify-end mb-4">
+                        <button class="bg-indigo-600 text-white px-4 py-2 rounded-md shadow-md hover:bg-indigo-700 transition-colors transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50"
+                            data-action="open-create-department-modal">新增部門</button>
+                    </div>
+                    <div id="department-list-content" class="space-y-4">
+                        <p class="text-gray-500">載入部門數據中...</p>
+                    </div>
+                </div>
+            `;
+            await loadUserManagementSection();
+            await loadDepartmentManagementSection();
+        } else {
+            contentDiv.innerHTML = `
+                <div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 rounded-md" role="alert">
+                    <p>您沒有權限訪問管理功能。</p>
+                </div>
+            `;
+        }
+    }
+
+    async function loadPendingObjectives(contentDiv) {
+        try {
+            google.script.run
+                .withSuccessHandler(function(jsonStringResult) {
+                    let result;
+                    try {
+                        result = JSON.parse(jsonStringResult);
+                    } catch (e) {
+                        contentDiv.innerHTML = `
+                            <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md">
+                                <p>載入失敗: 無法解析後端數據。錯誤: ${e.message}</p>
+                                <button class="mt-2 bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600" data-action="load-pending-objectives" data-content-div-id="admin-content">重試</button>
+                            </div>
+                        `;
+                        return;
+                    }
+
+                    if (!result || result.error) {
+                        contentDiv.innerHTML = `
+                            <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md">
+                                <p>載入失敗: ${result?.error || '無數據'}</p>
+                                <button class="mt-2 bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600" data-action="load-pending-objectives" data-content-div-id="admin-content">重試</button>
+                            </div>
+                        `;
+                        return;
+                    }
+
+                    const pendingObjectives = (Array.isArray(result.allObjectives) ? result.allObjectives : [])
+                        .filter(obj => obj.Status === 'Pending Chairman Approval');
+
+                    document.getElementById('pending-objectives-list').innerHTML = `
+                            ${pendingObjectives.length > 0 ? pendingObjectives.map(obj => `
+                                <div class="border border-gray-200 rounded-lg p-4">
+                                    <h4 class="font-semibold text-gray-700">${obj.Title || '未定義標題'}</h4>
+                                    <p class="text-sm text-gray-500">提交人: ${obj.OwnerEmail || '無負責人'}</p>
+                                    <p class="text-sm text-gray-500">類型: ${obj.objective_type || '未知'}</p>
+                                    <div class="mt-3 flex space-x-3">
+                                        <button class="bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 transition-colors"
+                                            data-action="approve-objective" data-objective-id="${obj.ID}">批准</button>
+                                        <button class="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-600 transition-colors"
+                                            data-action="reject-objective" data-objective-id="${obj.ID}">拒絕</button>
+                                        <button class="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition-colors"
+                                            data-action="show-objective-detail"
+                                            data-objective-id="${obj.ID}"
+                                            data-objective-title="${obj.Title || ''}"
+                                            data-kr-id="${obj.krs?.[0]?.ID || ''}"
+                                            data-kr-description="${obj.krs?.[0]?.Description || ''}"
+                                            data-kr-start-value="${obj.krs?.[0]?.StartValue ?? 0}"
+                                            data-kr-target-value="${obj.krs?.[0]?.TargetValue ?? 0}"
+                                            data-kr-current-value="${obj.krs?.[0]?.CurrentValue ?? 0}"
+                                            data-kr-progress="${obj.krs?.[0]?.Progress ?? 0}"
+                                            data-period="2025 Q2">查看詳情</button>
+                                    </div>
+                                </div>
+                            `).join('') : '<p class="text-gray-500">無待審批的 Objective</p>'}
+                    `;
+                })
+                .withFailureHandler(function(error) {
+                    document.getElementById('pending-objectives-list').innerHTML = `
+                        <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md">
+                            <p>載入失敗: ${error.message}</p>
+                            <button class="mt-2 bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600" data-action="load-pending-objectives" data-content-div-id="admin-content">重試</button>
+                        </div>
+                    `;
+                })
+                .getOKRs(SESSION_TOKEN);
+        } catch (error) {
+            document.getElementById('pending-objectives-list').innerHTML = `
+                <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md" role="alert">
+                    <p>發生錯誤: ${error.message}</p>
+                    <button class="mt-2 bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600" data-action="load-pending-objectives" data-content-div-id="admin-content">重試</button>
+                </div>
+            `;
+        }
+    }
+
+    async function loadMyPendingObjectives() {
+        const contentDiv = document.getElementById('my-pending-objectives');
+        if (!contentDiv) return;
+
+        try {
+            google.script.run
+                .withSuccessHandler(function(jsonStringResult) {
+                    let result;
+                    try {
+                        result = JSON.parse(jsonStringResult);
+                    } catch (e) {
+                        contentDiv.innerHTML = `
+                            <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md">
+                                <p>載入失敗: 無法解析後端數據。錯誤: ${e.message}</p>
+                                <button class="mt-2 bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600" data-action="load-my-pending-objectives">重試</button>
+                            </div>
+                        `;
+                        return;
+                    }
+
+                    if (!result || result.error) {
+                        contentDiv.innerHTML = `
+                            <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md">
+                                <p>載入失敗: ${result?.error || '無數據'}</p>
+                                <button class="mt-2 bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600" data-action="load-my-pending-objectives">重試</button>
+                            </div>
+                        `;
+                        return;
+                    }
+                    const pending = (Array.isArray(result.myOkrs) ? result.myOkrs : []).filter(obj => obj.Status === 'Pending Chairman Approval' && obj.OwnerEmail === USER_EMAIL);
+                    contentDiv.innerHTML = pending.length > 0 ? pending.map(obj => `
+                        <div class="border border-gray-200 rounded-lg p-4">
+                            <h4 class="font-semibold text-gray-700">${obj.Title || '未定義標題'}</h4>
+                            <p class="text-sm text-gray-500">狀態: 待董事長審批</p>
+                            <button class="mt-3 bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition-colors"
+                                data-action="show-objective-detail"
+                                data-objective-id="${obj.ID}"
+                                data-objective-title="${obj.Title || ''}"
+                                data-kr-id="${obj.krs?.[0]?.ID || ''}"
+                                data-kr-description="${obj.krs?.[0]?.Description || ''}"
+                                data-kr-start-value="${obj.krs?.[0]?.StartValue ?? 0}"
+                                data-kr-target-value="${obj.krs?.[0]?.TargetValue ?? 0}"
+                                data-kr-current-value="${obj.krs?.[0]?.CurrentValue ?? 0}"
+                                data-kr-progress="${obj.krs?.[0]?.Progress ?? 0}"
+                                data-period="2025 Q2">查看詳情</button>
+                        </div>
+                    `).join('') : '<p class="text-gray-500">無待審批的 Objective</p>';
+                })
+                .withFailureHandler(function(error) {
+                    contentDiv.innerHTML = `
+                        <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md">
+                            <p>載入失敗: ${error.message}</p>
+                            <button class="mt-2 bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600" data-action="load-my-pending-objectives">重試</button>
+                        </div>
+                    `;
+                })
+                .getOKRs(SESSION_TOKEN);
+        } catch (error) {
+            contentDiv.innerHTML = `
+                <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md" role="alert">
+                    <p>發生錯誤: ${error.message}</p>
+                    <button class="mt-2 bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600" data-action="load-my-pending-objectives">重試</button>
+                </div>
+            `;
+        }
+    }
+
+    /**
+     * 打開更新 Key Result 進度的模態框
+     * @param {string} krId - Key Result 的 ID
+     * @param {string} description - Key Result 的描述
+     * @param {number} startValue - 起始值
+     * @param {number} targetValue - 目標值
+     * @param {number} currentValue - 當前值
+     */
+    function openUpdateModal(krId, description, startValue, targetValue, currentValue) {
+        if (!krId || krId === 'dynamic-kr') { // 'dynamic-kr' 是 showObjectiveDetail 傳遞的臨時 ID
+            showToast('無效的關鍵成果 ID，無法更新。', 'error');
+            return;
+        }
+        currentUpdatingKrId = krId;
+        currentUpdatingKrStart = startValue;
+        currentUpdatingKrTarget = targetValue;
+        currentUpdatingKrCurrent = currentValue;
+
+        modalKrDescription.innerText = description || '未定義';
+        modalKrTarget.innerText = `從 ${startValue ?? 'N/A'} 到 ${targetValue ?? 'N/A'}`;
+        currentValueInput.value = currentValue ?? '';
+        commentInput.value = '';
+
+        updateModal.classList.remove('hidden');
+        updateModal.querySelector('.modal-content').classList.add('modal-active'); // 添加動畫類
+    }
+
+    /**
+     * 關閉更新 Key Result 進度的模態框
+     */
+    function closeUpdateModal() {
+        updateModal.classList.add('hidden');
+        updateModal.querySelector('.modal-content').classList.remove('modal-active'); // 移除動畫類
+    }
+
+    /**
+     * 處理 Key Result 進度更新的提交
+     */
+    async function handleUpdateProgress() {
+        const newValue = parseFloat(currentValueInput.value);
+        const comment = commentInput.value;
+
+        if (!isValidNumber(newValue)) {
+            showToast('請輸入有效的數字！', 'error');
+            return;
+        }
+
+        showToast('更新進度中...', 'info');
+        try {
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result.success) {
+                        showToast(result.message, 'success');
+                        closeUpdateModal();
+                        // 成功後重新載入當前區塊數據以更新 UI
+                        const activeSection = document.querySelector('.main-content-section.active');
+                        if (activeSection) {
+                            showSection(activeSection.id.replace('-section', ''));
+                        }
+                    } else {
+                        showToast('更新失敗: ' + result.message, 'error');
+                    }
+                })
+                .withFailureHandler(function(error) {
+                    showToast('與後端通訊失敗: ' + error.message, 'error');
+                })
+                .updateKeyResultProgress(SESSION_TOKEN, currentUpdatingKrId, newValue, comment); // 傳遞會話令牌
+        } catch (error) {
+            showToast('發生錯誤: ' + error.message, 'error');
+        }
+    }
+
+    /**
+     * 提交 Objective 進行審批
+     * @param {string} objectiveId - Objective 的 ID
+     */
+    async function submitObjectiveForApproval(objectiveId) {
+        if (!objectiveId) {
+            showToast('無效的 Objective ID，無法提交審批。', 'error');
+            return;
+        }
+        showToast('提交審批中...', 'info');
+        try {
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result.success) {
+                        showToast(result.message, 'success');
+                        showSection('my-okrs'); // 提交後刷新我的 OKR 頁面
+                    } else {
+                        showToast('提交失敗: ' + result.message, 'error');
+                    }
+                })
+                .withFailureHandler(function(error) {
+                    showToast('與後端通訊失敗: ' + error.message, 'error');
+                })
+                .submitObjectiveForApproval(SESSION_TOKEN, objectiveId); // 傳遞會話令牌
+        } catch (error) {
+            showToast('發生錯誤: ' + error.message, 'error');
+        }
+    }
+
+    /**
+     * 批准 Objective (僅限 Chairman)
+     * @param {string} objectiveId - Objective 的 ID
+     */
+    async function approveObjective(objectiveId) {
+        if (!objectiveId) {
+            showToast('無效的 Objective ID，無法批准。', 'error');
+            return;
+        }
+        showToast('批准中...', 'info');
+        try {
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result.success) {
+                        showToast(result.message, 'success');
+                        loadPendingObjectives(document.getElementById('admin-content')); // 批准後刷新待審批列表
+                    } else {
+                        showToast('批准失敗: ' + result.message, 'error');
+                    }
+                })
+                .withFailureHandler(function(error) {
+                    showToast('與後端通訊失敗: ' + error.message, 'error');
+                })
+                .approveObjective(SESSION_TOKEN, objectiveId); // 傳遞會話令牌
+        } catch (error) {
+            showToast('發生錯誤: ' + error.message, 'error');
+        }
+    }
+
+    /**
+     * 拒絕 Objective (僅限 Chairman)
+     * @param {string} objectiveId - Objective 的 ID
+     */
+    async function rejectObjective(objectiveId) {
+        if (!objectiveId) {
+            showToast('無效的 Objective ID，無法拒絕。', 'error');
+            return;
+        }
+        showToast('拒絕中...', 'info');
+        try {
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result.success) {
+                        showToast(result.message, 'success');
+                        loadPendingObjectives(document.getElementById('admin-content')); // 拒絕後刷新待審批列表
+                    } else {
+                        showToast('拒絕失敗: ' + result.message, 'error');
+                    }
+                })
+                .withFailureHandler(function(error) {
+                    showToast('與後端通訊失敗: ' + error.message, 'error');
+                })
+                .rejectObjective(SESSION_TOKEN, objectiveId); // 傳遞會話令牌
+        } catch (error) {
+            showToast('發生錯誤: ' + error.message, 'error');
+        }
+    }
+
+    /**
+     * 顯示 Objective 詳細頁面
+     * @param {string} objectiveId - Objective 的 ID
+     * @param {string} objectiveTitle - Objective 標題
+     * @param {string} krId - 關聯的 Key Result ID (如果從 KR 點擊詳情)
+     * @param {string} krDescription - 關聯的 Key Result 描述
+     * @param {number} krStart - 關聯的 Key Result 起始值
+     * @param {number} krTarget - 關聯的 Key Result 目標值
+     * @param {number} krCurrent - 關聯的 Key Result 當前值
+     * @param {number} krProgress - 關聯的 Key Result 進度
+     * @param {string} period - 週期
+     */
+    function showObjectiveDetail(objectiveId, objectiveTitle, krId, krDescription, krStart, krTarget, krCurrent, krProgress, period) {
+        mainContentSections.forEach(section => {
+            section.classList.add('hidden');
+            section.classList.remove('active');
+        });
+        const detailSection = document.getElementById('objective-detail-section');
+        detailSection.classList.remove('hidden');
+        detailSection.classList.add('active');
+
+        currentSectionTitle.innerText = "OKR 詳細資訊";
+
+        document.getElementById('detail-objective-title').innerText = objectiveTitle || '未定義標題';
+        document.getElementById('detail-period').innerText = period || 'N/A';
+        document.getElementById('detail-kr-description').innerText = krDescription || '未定義';
+        document.getElementById('detail-start-value').innerText = krStart ?? 'N/A';
+        document.getElementById('detail-target-value').innerText = krTarget ?? 'N/A';
+        document.getElementById('detail-current-value').innerText = krCurrent ?? 'N/A';
+        
+        // 設置 CSS 變數用於動畫
+        document.getElementById('detail-progress-bar').style.setProperty('--progress-width', `${krProgress ?? 0}%`);
+        document.getElementById('detail-progress-text').innerText = `進度: ${(krProgress ?? 0).toFixed(0)}%`;
+        
+        // 將 KR ID 存儲到隱藏輸入框，以便更新時使用
+        detailKrIdInput.value = krId;
+        // 將 Objective ID 存儲到隱藏輸入框，以便評論時使用
+        detailObjectiveIdInput.value = objectiveId;
+
+        currentUpdatingKrId = krId;
+        currentUpdatingKrStart = krStart;
+        currentUpdatingKrTarget = krTarget;
+        currentUpdatingKrCurrent = krCurrent;
+
+        // 載入評論
+        loadComments(objectiveId); // 載入 Objective 的評論
+    }
+
+    /**
+     * 展開/收起 OKR 列表項的詳細內容
+     * @param {string} objId - Objective 的 ID
+     */
+    function toggleOKR(objId) {
+        const content = document.getElementById(`content-${objId}`);
+        const arrow = document.getElementById(`arrow-${objId}`);
+        if (content && arrow) {
+            content.classList.toggle('hidden');
+            arrow.classList.toggle('rotate-180');
+        }
+    }
+
+    /**
+     * 檢查值是否為有效數字
+     * @param {*} value - 要檢查的值
+     * @returns {boolean} - 是否為有效數字
+     */
+    function isValidNumber(value) {
+        const parsed = parseFloat(value);
+        return !isNaN(parsed) && isFinite(parsed);
+    }
+
+    // --- 新增 Objective 相關函數 ---
+    /**
+     * 打開新增 Objective 的模態框
+     * @param {string} objectiveType - 預設的 Objective 類型 ('Company', 'Department', 'My')
+     */
+    async function openCreateObjectiveModal(objectiveType = '') {
+        createObjectiveModal.classList.remove('hidden');
+        createObjectiveModal.querySelector('.modal-content').classList.add('modal-active'); // 添加動畫類
+        createObjectiveForm.reset(); // 重置表單
+
+        // 預設負責人為當前用戶
+        createObjectiveOwnerSelect.value = USER_EMAIL;
+
+        // 預設 Objective 類型
+        if (objectiveType) {
+            createObjectiveTypeSelect.value = objectiveType;
+        } else {
+            createObjectiveTypeSelect.value = 'My'; // 預設為個人
+        }
+        
+        // 根據類型顯示/隱藏相關欄位
+        updateObjectiveFormFields();
+
+        // 載入用戶和部門列表
+        await loadUsersAndDepartments();
+        // 載入父級目標列表
+        await loadParentObjectives(createObjectiveTypeSelect.value);
+    }
+
+    /**
+     * 關閉新增 Objective 的模態框
+     */
+    function closeCreateObjectiveModal() {
+        createObjectiveModal.classList.add('hidden');
+        createObjectiveModal.querySelector('.modal-content').classList.remove('modal-active'); // 移除動畫類
+    }
+
+    /**
+     * 從後端載入用戶和部門列表，填充下拉選單
+     */
+    async function loadUsersAndDepartments() {
+        try {
+            google.script.run
+                .withSuccessHandler(function(jsonStringResult) {
+                    const result = JSON.parse(jsonStringResult);
+                    if (result.error) {
+                        showToast('載入用戶/部門失敗: ' + result.error, 'error');
+                        return;
+                    }
+                    // 填充用戶下拉選單
+                    createObjectiveOwnerSelect.innerHTML = '<option value="">請選擇負責人</option>';
+                    result.users.forEach(user => {
+                        const option = document.createElement('option');
+                        option.value = user.email;
+                        option.innerText = `${user.name || user.email} - ${user.department || '無部門'} (${user.role})`;
+                        createObjectiveOwnerSelect.appendChild(option);
+                    });
+                    // 預設選中當前用戶
+                    createObjectiveOwnerSelect.value = USER_EMAIL;
+
+                    // 填充部門下拉選單 (如果需要)
+                    const departmentSelect = document.getElementById('create-objective-department');
+                    departmentSelect.innerHTML = '<option value="">請選擇部門</option>';
+                    // 使用 result.departments 填充
+                    result.departments.forEach(dept => {
+                        const option = document.createElement('option');
+                        option.value = dept.ID; // 使用部門 ID 作為值
+                        option.innerText = dept.Name; // 顯示部門名稱
+                        departmentSelect.appendChild(option);
+                    });
+
+                    // 更新 userDepartment (用於部門 OKR 頁面顯示)
+                    const currentUserData = result.users.find(user => user.email === USER_EMAIL);
+                    if (currentUserData) {
+                        userDepartment = currentUserData.department || '';
+                    }
+
+                })
+                .withFailureHandler(function(error) {
+                    showToast('載入用戶/部門列表失敗: ' + error.message, 'error');
+                })
+                .getUsersAndDepartments(SESSION_TOKEN); // 傳遞會話令牌
+        } catch (error) {
+            showToast('獲取用戶/部門列表錯誤: ' + error.message, 'error');
+        }
+    }
+
+    /**
+     * 根據 Objective 類型載入父級目標列表，填充下拉選單
+     * @param {string} objectiveType - Objective 類型 ('Company', 'Department', 'My')
+     */
+    async function loadParentObjectives(objectiveType) {
+        const parentObjectiveDiv = document.getElementById('create-objective-parent-div');
+        const parentObjectiveSelect = document.getElementById('create-objective-parent');
+        
+        parentObjectiveSelect.innerHTML = '<option value="">無父級目標</option>'; // 預設選項
+
+        let targetParentType = '';
+        if (objectiveType === 'Company') {
+            parentObjectiveDiv.classList.add('hidden'); // 公司級無父級
+            return;
+        } else if (objectiveType === 'Department') {
+            parentObjectiveDiv.classList.remove('hidden');
+            targetParentType = 'Company'; // 部門級的父級是公司級
+        } else if (objectiveType === 'My') {
+            parentObjectiveDiv.classList.remove('hidden');
+            targetParentType = 'Department'; // 個人級的父級是部門級
+        } else {
+            parentObjectiveDiv.classList.add('hidden');
+            return;
+        }
+
+        try {
+            google.script.run
+                .withSuccessHandler(function(jsonStringResult) {
+                    const result = JSON.parse(jsonStringResult);
+                    if (result.error) {
+                        showToast('載入父級目標失敗: ' + result.error, 'error');
+                        return;
+                    }
+                    result.objectives.forEach(obj => {
+                        const option = document.createElement('option');
+                        option.value = obj.id;
+                        option.innerText = `[${targetParentType}] ${obj.title} (${obj.ownerEmail})`;
+                        parentObjectiveSelect.appendChild(option);
+                    });
+                })
+                .withFailureHandler(function(error) {
+                    showToast(`載入 ${targetParentType} 級目標失敗: ` + error.message, 'error');
+                })
+                .getObjectivesForSelection(SESSION_TOKEN, targetParentType); // 傳遞會話令牌
+        } catch (error) {
+            showToast(`獲取 ${targetParentType} 級目標錯誤: ` + error.message, 'error');
+        }
+    }
+
+    /**
+     * 根據 Objective 類型顯示/隱藏表單欄位
+     */
+    function updateObjectiveFormFields() {
+        const objectiveType = createObjectiveTypeSelect.value;
+        const departmentDiv = document.getElementById('create-objective-department-div');
+        const parentObjectiveDiv = document.getElementById('create-objective-parent-div');
+
+        if (objectiveType === 'Company') {
+            departmentDiv.classList.add('hidden');
+            parentObjectiveDiv.classList.add('hidden');
+        } else if (objectiveType === 'Department') {
+            departmentDiv.classList.remove('hidden');
+            parentObjectiveDiv.classList.remove('hidden');
+        } else if (objectiveType === 'My') {
+            departmentDiv.classList.add('hidden');
+            parentObjectiveDiv.classList.remove('hidden');
+        }
+        loadParentObjectives(objectiveType); // 重新載入父級目標
+    }
+
+    /**
+     * 處理新增 Objective 表單提交
+     * @param {Event} event - 提交事件
+     */
+    async function handleCreateObjective(event) {
+        event.preventDefault(); // 阻止表單預設提交
+
+        const formData = new FormData(createObjectiveForm);
+        const objData = {
+            Title: formData.get('title'),
+            Description: formData.get('description'),
+            OwnerEmail: formData.get('owner'),
+            Period: formData.get('period'),
+            Type: formData.get('type'),
+            ParentObjectiveID: formData.get('parent-objective'),
+            DepartmentID: formData.get('department') // 僅部門 Objective 需要，現在是 ID
+        };
+
+        // 簡單驗證
+        if (!objData.Title || !objData.OwnerEmail || !objData.Period || !objData.Type) {
+            showToast('請填寫所有必填欄位！', 'error');
+            return;
+        }
+        if (objData.Type === 'Department' && !objData.DepartmentID) {
+            showToast('部門 Objective 必須選擇所屬部門！', 'error');
+            return;
+        }
+        if ((objData.Type === 'Department' || objData.Type === 'My') && !objData.ParentObjectiveID) {
+            showToast('部門和個人 Objective 必須選擇父級目標！', 'error');
+            return;
+        }
+
+
+        showToast('新增 Objective 中...', 'info');
+        try {
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result.success) {
+                        showToast(result.message, 'success');
+                        closeCreateObjectiveModal();
+                        // 刷新對應頁面
+                        showSection(objData.Type === 'Company' ? 'company-okrs' : objData.Type === 'Department' ? 'department-okrs' : 'my-okrs');
+                    } else {
+                        showToast('新增失敗: ' + result.message, 'error');
+                    }
+                })
+                .withFailureHandler(function(error) {
+                    showToast('與後端通訊失敗: ' + error.message, 'error');
+                })
+                .createObjective(SESSION_TOKEN, objData); // 傳遞會話令牌
+        } catch (error) {
+            showToast('發生錯誤: ' + error.message, 'error');
+        }
+    }
+
+    // --- 新增 Key Result 相關函數 ---
+    let currentParentObjectiveIdForKr = ''; // 儲存當前要新增 KR 的父級 Objective ID
+
+    /**
+     * 打開新增 Key Result 的模態框
+     * @param {string} parentObjectiveId - 父級 Objective 的 ID
+     */
+    function openCreateKrModal(parentObjectiveId) {
+        currentParentObjectiveIdForKr = parentObjectiveId;
+        createKrModal.classList.remove('hidden');
+        createKrModal.querySelector('.modal-content').classList.add('modal-active'); // 添加動畫類
+        createKrForm.reset(); // 重置表單
+
+        // 預設負責人為當前用戶
+        createKrOwnerSelect.value = USER_EMAIL;
+        // 預設 Metric Type
+        createKrMetricTypeSelect.value = 'Number';
+        
+        // 設置隱藏的父級 Objective ID
+        createKrParentObjectiveIdInput.value = parentObjectiveId;
+
+        // 載入用戶列表到 KR 負責人下拉選單
+        loadUsersForKrOwner();
+    }
+
+    /**
+     * 關閉新增 Key Result 的模態框
+     */
+    function closeCreateKrModal() {
+        createKrModal.classList.add('hidden');
+        createKrModal.querySelector('.modal-content').classList.remove('modal-active'); // 移除動畫類
+    }
+
+    /**
+     * 載入用戶列表到 KR 負責人下拉選單
+     */
+    async function loadUsersForKrOwner() {
+        try {
+            google.script.run
+                .withSuccessHandler(function(jsonStringResult) {
+                    const result = JSON.parse(jsonStringResult);
+                    if (result.error) {
+                        showToast('載入用戶失敗: ' + result.error, 'error');
+                        return;
+                    }
+                    createKrOwnerSelect.innerHTML = '<option value="">請選擇負責人</option>';
+                    result.users.forEach(user => {
+                        const option = document.createElement('option');
+                        option.value = user.email;
+                        option.innerText = `${user.name || user.email} - ${user.department || '無部門'}`;
+                        createKrOwnerSelect.appendChild(option);
+                    });
+                    createKrOwnerSelect.value = USER_EMAIL; // 預設選中當前用戶
+                })
+                .withFailureHandler(function(error) {
+                    showToast('載入 KR 負責人列表失敗: ' + error.message, 'error');
+                })
+                .getUsersAndDepartments(SESSION_TOKEN); // 傳遞會話令牌
+        } catch (error) {
+            showToast('獲取 KR 負責人列表錯誤: ' + error.message, 'error');
+        }
+    }
+
+
+    /**
+     * 處理新增 Key Result 表單提交
+     * @param {Event} event - 提交事件
+     */
+    async function handleCreateKeyResult(event) {
+        event.preventDefault(); // 阻止表單預設提交
+
+        const formData = new FormData(createKrForm);
+        const krData = {
+            ObjectiveID: formData.get('parent-objective-id'), // 從隱藏欄位獲取
+            Description: formData.get('kr-description'),
+            OwnerEmail: formData.get('kr-owner'),
+            MetricType: formData.get('kr-metric-type'),
+            StartValue: formData.get('kr-start-value'),
+            TargetValue: formData.get('kr-target-value'),
+            Unit: formData.get('kr-unit')
+        };
+
+        // 簡單驗證
+        if (!krData.Description || !krData.OwnerEmail || !krData.MetricType || !krData.TargetValue) {
+            showToast('請填寫所有必填欄位！', 'error');
+            return;
+        }
+        if (!isValidNumber(krData.StartValue) || !isValidNumber(krData.TargetValue)) {
+             showToast('起始值和目標值必須是有效數字！', 'error');
+             return;
+        }
+        if (!krData.ObjectiveID) {
+            showToast('KR 必須關聯一個父級 Objective！', 'error');
+            return;
+        }
+
+        showToast('新增關鍵成果中...', 'info');
+        try {
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result.success) {
+                        showToast(result.message, 'success');
+                        closeCreateKrModal();
+                        // 刷新當前 Objective 詳細頁面或父級 Objective 所在的列表頁面
+                        // 這裡假設回到我的 OKR 頁面，並會自動展開顯示 KR
+                        showSection('my-okrs'); 
+                    } else {
+                        showToast('新增失敗: ' + result.message, 'error');
+                    }
+                })
+                .withFailureHandler(function(error) {
+                    showToast('與後端通訊失敗: ' + error.message, 'error');
+                })
+                .createKeyResult(SESSION_TOKEN, krData); // 傳遞會話令牌
+        } catch (error) {
+            showToast('發生錯誤: ' + error.message, 'error');
+        }
+    }
+
+
+    // --- DOMContentLoaded 和初始化 ---
+    document.addEventListener('DOMContentLoaded', () => {
+        // 初始化 DOM 元素引用
+        sidebar = document.getElementById('sidebar');
+        sidebarToggle = document.getElementById('sidebar-toggle');
+        mainContentSections = document.querySelectorAll('.main-content-section');
+        currentSectionTitle = document.getElementById('current-section-title');
+        userDisplayName = document.getElementById('user-display-name');
+        updateModal = document.getElementById('update-modal');
+        modalKrDescription = document.getElementById('modal-kr-description');
+        modalKrTarget = document.getElementById('modal-kr-target');
+        currentValueInput = document.getElementById('current-value-input');
+        commentInput = document.getElementById('comment-input');
+        toastContainer = document.getElementById('toast-container');
+        detailKrIdInput = document.getElementById('detail-kr-id');
+        detailObjectiveIdInput = document.getElementById('detail-objective-id'); // 初始化 Objective ID 隱藏輸入框
+
+        // 新增 Objective 模態框相關元素
+        createObjectiveModal = document.getElementById('create-objective-modal');
+        createObjectiveForm = document.getElementById('create-objective-form');
+        createObjectiveOwnerSelect = document.getElementById('create-objective-owner');
+        createObjectiveTypeSelect = document.getElementById('create-objective-type');
+        createObjectiveParentSelect = document.getElementById('create-objective-parent');
+        createObjectiveDepartmentSelect = document.getElementById('create-objective-department');
+
+        // 新增 Key Result 模態框相關元素
+        createKrModal = document.getElementById('create-kr-modal');
+        createKrForm = document.getElementById('create-kr-form');
+        createKrOwnerSelect = document.getElementById('create-kr-owner');
+        createKrMetricTypeSelect = document.getElementById('create-kr-metric-type');
+        createKrParentObjectiveIdInput = document.getElementById('create-kr-parent-objective-id');
+
+        // 評論區相關元素
+        detailCommentsList = document.getElementById('comments-list'); // 評論列表容器
+        detailCommentTextInput = document.getElementById('detail-comment-text');
+        detailCommentSubmitButton = document.getElementById('detail-comment-submit');
+
+        // 登入模態框相關元素
+        loginModal = document.getElementById('login-modal');
+        loginForm = document.getElementById('login-form');
+        loginEmailInput = document.getElementById('login-email');
+        loginPasswordInput = document.getElementById('login-password');
+
+        // 管理頁面內容容器
+        adminUsersContent = document.getElementById('user-list-content');
+        adminDepartmentsContent = document.getElementById('department-list-content');
+
+        // 用戶管理模態框
+        createUserModal = document.getElementById('create-user-modal');
+        createUserForm = document.getElementById('create-user-form');
+        createUserEmailInput = document.getElementById('create-user-email');
+        createUserPasswordInput = document.getElementById('create-user-password');
+        createUserRoleSelect = document.getElementById('create-user-role');
+        createUserDepartmentSelect = document.getElementById('create-user-department');
+        createUserNameInput = document.getElementById('create-user-name');
+        createUserShortIdInput = document.getElementById('create-user-short-id');
+        createUserIsActiveCheckbox = document.getElementById('create-user-is-active');
+
+        editUserModal = document.getElementById('edit-user-modal');
+        editUserForm = document.getElementById('edit-user-form');
+        editUserEmailInput = document.getElementById('edit-user-email');
+        editUserPasswordInput = document.getElementById('edit-user-password');
+        editUserRoleSelect = document.getElementById('edit-user-role');
+        editUserDepartmentSelect = document.getElementById('edit-user-department');
+        editUserNameInput = document.getElementById('edit-user-name');
+        editUserShortIdInput = document.getElementById('edit-user-short-id');
+        editUserIsActiveCheckbox = document.getElementById('edit-user-is-active');
+
+        // 部門管理模態框
+        createDepartmentModal = document.getElementById('create-department-modal');
+        createDepartmentForm = document.getElementById('create-department-form');
+        createDepartmentIdInput = document.getElementById('create-department-id');
+        createDepartmentNameInput = document.getElementById('create-department-name');
+
+        editDepartmentModal = document.getElementById('edit-department-modal');
+        editDepartmentForm = document.getElementById('edit-department-form');
+        editDepartmentIdInput = document.getElementById('edit-department-id');
+        editDepartmentNameInput = document.getElementById('edit-department-name');
+
+
+        userDisplayName.innerText = USER_EMAIL || "用戶";
+        setupSidebarToggle();
+        
+        // 綁定表單提交事件
+        if (createObjectiveForm) {
+            createObjectiveForm.addEventListener('submit', handleCreateObjective);
+            createObjectiveTypeSelect.addEventListener('change', updateObjectiveFormFields);
+        }
+        if (createKrForm) {
+            createKrForm.addEventListener('submit', handleCreateKeyResult);
+        }
+        if (loginForm) {
+            loginForm.addEventListener('submit', handleLogin);
+        }
+        if (createUserForm) {
+            createUserForm.addEventListener('submit', handleCreateUser);
+        }
+        if (editUserForm) {
+            editUserForm.addEventListener('submit', handleEditUser);
+        }
+        if (createDepartmentForm) {
+            createDepartmentForm.addEventListener('submit', handleCreateDepartment);
+        }
+        if (editDepartmentForm) {
+            editDepartmentForm.addEventListener('submit', handleEditDepartment);
+        }
+
+
+        // 統一處理所有點擊事件 (事件委派)
+        document.body.addEventListener('click', (event) => {
+            const target = event.target.closest('[data-action]'); // 找到最近的帶 data-action 屬性的元素
+            if (!target) return;
+
+            const action = target.dataset.action;
+            const sectionId = target.dataset.sectionId; // 用於 show-section
+            const objectiveType = target.dataset.objectiveType; // 用於 open-create-objective-modal
+            const objId = target.dataset.objId; // 用於 toggle-okr, submit-objective-for-approval, approve-objective, reject-objective, delete-objective
+            const krId = target.dataset.krId; // 用於 open-update-modal, show-objective-detail, delete-kr
+            const description = target.dataset.description;
+            const startValue = parseFloat(target.dataset.startValue);
+            const targetValue = parseFloat(target.dataset.targetValue);
+            const currentValue = parseFloat(target.dataset.currentValue);
+            const progress = parseFloat(target.dataset.progress);
+            const period = target.dataset.period;
+            const objectiveTitle = target.dataset.objectiveTitle;
+            const krDescription = target.dataset.krDescription;
+            const krStartValue = parseFloat(target.dataset.krStartValue);
+            const krTargetValue = parseFloat(target.dataset.krTargetValue);
+            const krCurrentValue = parseFloat(target.dataset.krCurrentValue);
+            const krProgress = parseFloat(target.dataset.krProgress);
+            
+            const userEmail = target.dataset.userEmail; // 用於用戶管理
+            const userName = target.dataset.userName;
+            const userDept = target.dataset.userDept;
+            const userRole = target.dataset.userRole;
+            const userId = target.dataset.userId;
+            const userIsActive = target.dataset.userIsActive === 'true';
+
+            const deptId = target.dataset.deptId; // 用於部門管理
+            const deptName = target.dataset.deptName;
+
+
+            switch (action) {
+                case 'show-section':
+                    showSection(sectionId);
+                    break;
+                case 'open-create-objective-modal':
+                    openCreateObjectiveModal(objectiveType);
+                    break;
+                case 'open-create-kr-modal':
+                    openCreateKrModal(objId); // objId here is parentObjectiveId
+                    break;
+                case 'open-update-modal':
+                    openUpdateModal(krId, description, startValue, targetValue, currentValue);
+                    break;
+                case 'handle-update-progress': // 從模態框的確認按鈕觸發
+                    handleUpdateProgress();
+                    break;
+                case 'submit-objective-for-approval':
+                    submitObjectiveForApproval(objId);
+                    break;
+                case 'approve-objective':
+                    approveObjective(objId);
+                    break;
+                case 'reject-objective':
+                    rejectObjective(objId);
+                    break;
+                case 'delete-objective':
+                    // deleteObjective(objId, objectiveTitle); // This function was not defined in the provided code
+                    showToast(`刪除 Objective 功能 (ID: ${objId}) 待實現或確認`, 'info');
+                    break;
+                case 'open-edit-objective-modal':
+                    // openEditObjectiveModal(objId, objectiveType); // 待實現
+                    showToast('編輯 Objective 功能待實現', 'info');
+                    break;
+                case 'delete-kr':
+                    // deleteKeyResult(krId, krDescription); // This function was not defined
+                    showToast(`刪除 Key Result 功能 (ID: ${krId}) 待實現或確認`, 'info');
+                    break;
+                case 'open-edit-kr-modal':
+                    // openEditKeyResultModal(krId); // 待實現
+                    showToast('編輯 Key Result 功能待實現', 'info');
+                    break;
+                case 'show-objective-detail':
+                    showObjectiveDetail(objId, objectiveTitle, krId, krDescription, krStartValue, krTargetValue, krCurrentValue, krProgress, period);
+                    break;
+                case 'toggle-okr':
+                    toggleOKR(objId);
+                    break;
+                case 'show-toast': // 用於測試或待實現功能的提示
+                    showToast(target.dataset.message, target.dataset.type || 'info');
+                    break;
+                case 'close-modal': // 統一關閉模態框
+                    document.getElementById(target.dataset.modalId).classList.add('hidden');
+                    document.getElementById(target.dataset.modalId).querySelector('.modal-content').classList.remove('modal-active');
+                    break;
+                case 'add-comment': // 處理評論提交
+                    handleAddComment();
+                    break;
+                case 'logout': // 登出
+                    handleLogout();
+                    break;
+                case 'open-create-user-modal': // 用戶管理
+                    openCreateUserModal();
+                    break;
+                case 'open-edit-user-modal': // 用戶管理
+                    openEditUserModal(userEmail, userName, userDept, userRole, userId, userIsActive);
+                    break;
+                case 'delete-user': // 用戶管理
+                    deleteUser(userEmail, userName);
+                    break;
+                case 'open-create-department-modal': // 部門管理
+                    openCreateDepartmentModal();
+                    break;
+                case 'open-edit-department-modal': // 部門管理
+                    openEditDepartmentModal(deptId, deptName);
+                    break;
+                case 'delete-department': // 部門管理
+                    deleteDepartment(deptId, deptName);
+                    break;
+                default:
+                    console.warn('未知的 data-action:', action);
+            }
+        });
+
+
+        // 檢查登入狀態
+        const storedSessionToken = localStorage.getItem('sessionToken');
+        const storedUserEmail = localStorage.getItem('userEmail');
+        const storedUserRole = localStorage.getItem('userRole');
+        const storedUserId = localStorage.getItem('userId');
+        const storedUserDepartment = localStorage.getItem('userDepartment');
+
+
+        if (storedSessionToken && storedUserEmail && storedUserRole && storedUserId) {
+            SESSION_TOKEN = storedSessionToken;
+            USER_EMAIL = storedUserEmail;
+            USER_ROLE = storedUserRole;
+            USER_ID = storedUserId;
+            userDepartment = storedUserDepartment; // 設置部門
+
+            userDisplayName.innerText = USER_EMAIL || "用戶";
+            // 根據用戶角色控制側邊欄選項顯示
+            const sidebarLinks = document.querySelectorAll('#sidebar nav a');
+            sidebarLinks.forEach(link => {
+                const onclickAttr = link.getAttribute('data-action'); // 使用 data-action
+                if (!onclickAttr || !onclickAttr.includes('show-section')) {
+                    return;
+                }
+                const sectionIdMatch = link.getAttribute('data-section-id');
+                if (sectionIdMatch) {
+                    if (!hasPermission(sectionIdMatch)) {
+                        link.style.display = 'none';
+                    } else {
+                        link.style.display = 'flex';
+                    }
+                }
+            });
+
+            // 導向用戶可訪問的第一個頁面
+            const firstAccessibleSection = ROLE_PERMISSIONS[USER_ROLE]?.[0]; // Added optional chaining
+            if (firstAccessibleSection) {
+                showSection(firstAccessibleSection);
+            } else {
+                document.body.innerHTML = `
+                    <div class="flex items-center justify-center h-screen bg-gray-100">
+                        <div class="bg-white p-8 rounded-lg shadow-xl text-center">
+                            <h1 class="text-2xl font-bold text-red-600 mb-4">無法訪問任何頁面</h1>
+                            <p class="text-gray-600">您的角色沒有被授予任何頁面訪問權限。</p>
+                            <p class="text-sm text-gray-500 mt-2">請聯繫系統管理員。</p>
+                        </div>
+                    </div>
+                `;
+            }
+        } else {
+            // 如果沒有會話令牌，顯示登入模態框
+            loginModal.classList.remove('hidden');
+            loginModal.querySelector('.modal-content').classList.add('modal-active');
+        }
+    });
+
+    // --- 登入/登出功能 ---
+    async function handleLogin(event) {
+        event.preventDefault();
+        const email = loginEmailInput.value.trim();
+        const password = loginPasswordInput.value;
+
+        if (!email || !password) {
+            showToast('請輸入 Email 和密碼！', 'error');
+            return;
+        }
+
+        showToast('登入中...', 'info');
+        try {
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result.success) {
+                        showToast(result.message, 'success');
+                        localStorage.setItem('sessionToken', result.sessionToken);
+                        localStorage.setItem('userEmail', result.userEmail);
+                        localStorage.setItem('userRole', result.userRole);
+                        localStorage.setItem('userId', result.userId);
+                        localStorage.setItem('userDepartment', result.userDepartment || ''); // 儲存部門
+
+                        // 更新全局變數
+                        SESSION_TOKEN = result.sessionToken;
+                        USER_EMAIL = result.userEmail;
+                        USER_ROLE = result.userRole;
+                        USER_ID = result.userId;
+                        userDepartment = result.userDepartment;
+
+                        loginModal.classList.add('hidden');
+                        loginModal.querySelector('.modal-content').classList.remove('modal-active');
+                        // 重新載入頁面以初始化所有 UI
+                        location.reload();
+                    } else {
+                        showToast('登入失敗: ' + result.message, 'error');
+                    }
+                })
+                .withFailureHandler(function(error) {
+                    showToast('與後端通訊失敗: ' + error.message, 'error');
+                })
+                .loginUser(email, password);
+        } catch (error) {
+            showToast('發生錯誤: ' + error.message, 'error');
+        }
+    }
+
+    async function handleLogout() {
+        showToast('登出中...', 'info');
+        try {
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result.success) {
+                        showToast(result.message, 'success');
+                        localStorage.removeItem('sessionToken');
+                        localStorage.removeItem('userEmail');
+                        localStorage.removeItem('userRole');
+                        localStorage.removeItem('userId');
+                        localStorage.removeItem('userDepartment');
+                        location.reload(); // 重新載入頁面以顯示登入框
+                    } else {
+                        showToast('登出失敗: ' + result.message, 'error');
+                    }
+                })
+                .withFailureHandler(function(error) {
+                    showToast('與後端通訊失敗: ' + error.message, 'error');
+                })
+                .logoutUser(SESSION_TOKEN);
+        } catch (error) {
+            showToast('發生錯誤: ' + error.message, 'error');
+        }
+    }
+
+    // --- 用戶管理功能 ---
+    async function loadUserManagementSection() {
+        if (!adminUsersContent) return;
+        adminUsersContent.innerHTML = `
+            <div class="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 rounded-md animate-pulse" role="alert">
+                <p>載入用戶數據中...</p>
+            </div>
+        `;
+        try {
+            google.script.run
+                .withSuccessHandler(function(jsonStringResult) {
+                    const result = JSON.parse(jsonStringResult);
+                    if (result.error) {
+                        adminUsersContent.innerHTML = `<p class="text-red-500">載入用戶失敗: ${result.error}</p>`;
+                        return;
+                    }
+                    adminUsersContent.innerHTML = `
+                        <table class="min-w-full bg-white rounded-lg shadow-md">
+                            <thead>
+                                <tr>
+                                    <th class="py-2 px-4 border-b text-left text-gray-600">Email</th>
+                                    <th class="py-2 px-4 border-b text-left text-gray-600">姓名</th>
+                                    <th class="py-2 px-4 border-b text-left text-gray-600">部門</th>
+                                    <th class="py-2 px-4 border-b text-left text-gray-600">角色</th>
+                                    <th class="py-2 px-4 border-b text-left text-gray-600">啟用</th>
+                                    <th class="py-2 px-4 border-b text-left text-gray-600">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${result.users.map(user => `
+                                    <tr class="hover:bg-gray-50">
+                                        <td class="py-2 px-4 border-b text-gray-800">${user.Email}</td>
+                                        <td class="py-2 px-4 border-b text-gray-800">${user.Name || 'N/A'}</td>
+                                        <td class="py-2 px-4 border-b text-gray-800">${user.Department || 'N/A'}</td>
+                                        <td class="py-2 px-4 border-b text-gray-800">${user.Role}</td>
+                                        <td class="py-2 px-4 border-b text-gray-800">${user.IsActive ? '是' : '否'}</td>
+                                        <td class="py-2 px-4 border-b">
+                                            <button class="text-blue-600 hover:underline text-sm mr-2"
+                                                data-action="open-edit-user-modal"
+                                                data-user-email="${user.Email}"
+                                                data-user-name="${user.Name || ''}"
+                                                data-user-dept="${user.Department || ''}"
+                                                data-user-role="${user.Role}"
+                                                data-user-id="${user.ID}"
+                                                data-user-is-active="${user.IsActive}">編輯</button>
+                                            <button class="text-red-600 hover:underline text-sm"
+                                                data-action="delete-user"
+                                                data-user-email="${user.Email}"
+                                                data-user-name="${user.Name || user.Email}">刪除</button>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    `;
+                })
+                .withFailureHandler(function(error) {
+                    adminUsersContent.innerHTML = `<p class="text-red-500">載入用戶失敗: ${error.message}</p>`;
+                })
+                .getAllUsers(SESSION_TOKEN);
+        } catch (error) {
+            adminUsersContent.innerHTML = `<p class="text-red-500">載入用戶錯誤: ${error.message}</p>`;
+        }
+    }
+
+    function openCreateUserModal() {
+        createUserModal.classList.remove('hidden');
+        createUserModal.querySelector('.modal-content').classList.add('modal-active');
+        createUserForm.reset();
+        // 填充角色下拉選單
+        const roles = ['Employee', 'Department_Manager', 'CLevel_Exec', 'HR_Admin', 'OKR_Admin', 'Chairman'];
+        createUserRoleSelect.innerHTML = roles.map(role => `<option value="${role}">${role}</option>`).join('');
+        // 填充部門下拉選單
+        loadDepartmentsForUserForm(createUserDepartmentSelect);
+        createUserIsActiveCheckbox.checked = true; // 預設啟用
+    }
+
+    function closeCreateUserModal() {
+        createUserModal.classList.add('hidden');
+        createUserModal.querySelector('.modal-content').classList.remove('modal-active');
+    }
+
+    async function loadDepartmentsForUserForm(selectElement) {
+        try {
+            google.script.run
+                .withSuccessHandler(function(jsonStringResult) {
+                    const result = JSON.parse(jsonStringResult);
+                    if (result.error) {
+                        showToast('載入部門失敗: ' + result.error, 'error');
+                        return;
+                    }
+                    selectElement.innerHTML = '<option value="">無</option>'; // 允許無部門
+                    result.departments.forEach(dept => {
+                        const option = document.createElement('option');
+                        option.value = dept.Name; // 使用部門名稱
+                        option.innerText = dept.Name;
+                        selectElement.appendChild(option);
+                    });
+                })
+                .withFailureHandler(function(error) {
+                    showToast('載入部門列表失敗: ' + error.message, 'error');
+                })
+                .getAllDepartments(SESSION_TOKEN);
+        } catch (error) {
+            showToast('獲取部門列表錯誤: ' + error.message, 'error');
+        }
+    }
+
+    async function handleCreateUser(event) {
+        event.preventDefault();
+        const formData = new FormData(createUserForm);
+        const userData = {
+            Email: formData.get('email'),
+            Password: formData.get('password'),
+            Name: formData.get('name'),
+            Department: formData.get('department'),
+            Role: formData.get('role'),
+            ID: formData.get('short-id'),
+            IsActive: createUserIsActiveCheckbox.checked
+        };
+
+        if (!userData.Email || !userData.Password || !userData.Role || !userData.ID) {
+            showToast('請填寫所有必填欄位 (Email, 密碼, 角色, 短ID)！', 'error');
+            return;
+        }
+
+        showToast('新增用戶中...', 'info');
+        try {
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result.success) {
+                        showToast(result.message, 'success');
+                        closeCreateUserModal();
+                        loadUserManagementSection(); // 刷新用戶列表
+                    } else {
+                        showToast('新增失敗: ' + result.message, 'error');
+                    }
+                })
+                .withFailureHandler(function(error) {
+                    showToast('與後端通訊失敗: ' + error.message, 'error');
+                })
+                .createUser(SESSION_TOKEN, userData);
+        } catch (error) {
+            showToast('發生錯誤: ' + error.message, 'error');
+        }
+    }
+
+    function openEditUserModal(email, name, dept, role, id, isActive) {
+        editUserModal.classList.remove('hidden');
+        editUserModal.querySelector('.modal-content').classList.add('modal-active');
+        editUserForm.reset();
+
+        editUserEmailInput.value = email;
+        editUserEmailInput.disabled = true; // Email 不可編輯
+        editUserNameInput.value = name;
+        editUserShortIdInput.value = id;
+        editUserIsActiveCheckbox.checked = isActive;
+
+        // 填充角色下拉選單
+        const roles = ['Employee', 'Department_Manager', 'CLevel_Exec', 'HR_Admin', 'OKR_Admin', 'Chairman'];
+        editUserRoleSelect.innerHTML = roles.map(r => `<option value="${r}" ${r === role ? 'selected' : ''}>${r}</option>`).join('');
+        // 填充部門下拉選單
+        loadDepartmentsForUserForm(editUserDepartmentSelect).then(() => {
+            editUserDepartmentSelect.value = dept;
+        });
+    }
+
+    function closeEditUserModal() {
+        editUserModal.classList.add('hidden');
+        editUserModal.querySelector('.modal-content').classList.remove('modal-active');
+    }
+
+    async function handleEditUser(event) {
+        event.preventDefault();
+        const formData = new FormData(editUserForm);
+        const userData = {
+            Email: editUserEmailInput.value, // Email 不可改
+            Password: formData.get('password'), // 密碼可選
+            Name: formData.get('name'),
+            Department: formData.get('department'),
+            Role: formData.get('role'),
+            ID: formData.get('short-id'),
+            IsActive: editUserIsActiveCheckbox.checked
+        };
+
+        if (!userData.Email || !userData.Role || !userData.ID) {
+            showToast('請填寫所有必填欄位 (Email, 角色, 短ID)！', 'error');
+            return;
+        }
+
+        showToast('編輯用戶中...', 'info');
+        try {
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result.success) {
+                        showToast(result.message, 'success');
+                        closeEditUserModal();
+                        loadUserManagementSection(); // 刷新用戶列表
+                    } else {
+                        showToast('編輯失敗: ' + result.message, 'error');
+                    }
+                })
+                .withFailureHandler(function(error) {
+                    showToast('與後端通訊失敗: ' + error.message, 'error');
+                })
+                .editUser(SESSION_TOKEN, userData);
+        } catch (error) {
+            showToast('發生錯誤: ' + error.message, 'error');
+        }
+    }
+
+    async function deleteUser(email, name) {
+        // Note: Using native confirm. For better UX, replace with a custom modal.
+        if (!window.confirm(`確定要刪除用戶 ${name} (${email}) 嗎？這將無法復原！`)) {
+            return;
+        }
+        showToast('刪除用戶中...', 'info');
+        try {
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result.success) {
+                        showToast(result.message, 'success');
+                        loadUserManagementSection(); // 刷新用戶列表
+                    } else {
+                        showToast('刪除失敗: ' + result.message, 'error');
+                    }
+                })
+                .withFailureHandler(function(error) {
+                    showToast('與後端通訊失敗: ' + error.message, 'error');
+                })
+                .deleteUser(SESSION_TOKEN, email);
+        } catch (error) {
+            showToast('發生錯誤: ' + error.message, 'error');
+        }
+    }
+
+    // --- 部門管理功能 ---
+    async function loadDepartmentManagementSection() {
+        if (!adminDepartmentsContent) return;
+        adminDepartmentsContent.innerHTML = `
+            <div class="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 rounded-md animate-pulse" role="alert">
+                <p>載入部門數據中...</p>
+            </div>
+        `;
+        try {
+            google.script.run
+                .withSuccessHandler(function(jsonStringResult) {
+                    const result = JSON.parse(jsonStringResult);
+                    if (result.error) {
+                        adminDepartmentsContent.innerHTML = `<p class="text-red-500">載入部門失敗: ${result.error}</p>`;
+                        return;
+                    }
+                    adminDepartmentsContent.innerHTML = `
+                        <table class="min-w-full bg-white rounded-lg shadow-md">
+                            <thead>
+                                <tr>
+                                    <th class="py-2 px-4 border-b text-left text-gray-600">部門 ID</th>
+                                    <th class="py-2 px-4 border-b text-left text-gray-600">部門名稱</th>
+                                    <th class="py-2 px-4 border-b text-left text-gray-600">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${result.departments.map(dept => `
+                                    <tr class="hover:bg-gray-50">
+                                        <td class="py-2 px-4 border-b text-gray-800">${dept.ID}</td>
+                                        <td class="py-2 px-4 border-b text-gray-800">${dept.Name}</td>
+                                        <td class="py-2 px-4 border-b">
+                                            <button class="text-blue-600 hover:underline text-sm mr-2"
+                                                data-action="open-edit-department-modal"
+                                                data-dept-id="${dept.ID}"
+                                                data-dept-name="${dept.Name}">編輯</button>
+                                            <button class="text-red-600 hover:underline text-sm"
+                                                data-action="delete-department"
+                                                data-dept-id="${dept.ID}"
+                                                data-dept-name="${dept.Name}">刪除</button>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    `;
+                })
+                .withFailureHandler(function(error) {
+                    adminDepartmentsContent.innerHTML = `<p class="text-red-500">載入部門失敗: ${error.message}</p>`;
+                })
+                .getAllDepartments(SESSION_TOKEN);
+        } catch (error) {
+            adminDepartmentsContent.innerHTML = `<p class="text-red-500">載入部門錯誤: ${error.message}</p>`;
+        }
+    }
+
+    function openCreateDepartmentModal() {
+        createDepartmentModal.classList.remove('hidden');
+        createDepartmentModal.querySelector('.modal-content').classList.add('modal-active');
+        createDepartmentForm.reset();
+    }
+
+    function closeCreateDepartmentModal() {
+        createDepartmentModal.classList.add('hidden');
+        createDepartmentModal.querySelector('.modal-content').classList.remove('modal-active');
+    }
+
+    async function handleCreateDepartment(event) {
+        event.preventDefault();
+        const formData = new FormData(createDepartmentForm);
+        const deptData = {
+            ID: formData.get('dept-id').trim(),
+            Name: formData.get('dept-name').trim()
+        };
+
+        if (!deptData.ID || !deptData.Name) {
+            showToast('請填寫所有必填欄位 (部門 ID, 部門名稱)！', 'error');
+            return;
+        }
+
+        showToast('新增部門中...', 'info');
+        try {
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result.success) {
+                        showToast(result.message, 'success');
+                        closeCreateDepartmentModal();
+                        loadDepartmentManagementSection(); // 刷新部門列表
+                    } else {
+                        showToast('新增失敗: ' + result.message, 'error');
+                    }
+                })
+                .withFailureHandler(function(error) {
+                    showToast('與後端通訊失敗: ' + error.message, 'error');
+                })
+                .createDepartment(SESSION_TOKEN, deptData);
+        } catch (error) {
+            showToast('發生錯誤: ' + error.message, 'error');
+        }
+    }
+
+    function openEditDepartmentModal(id, name) {
+        editDepartmentModal.classList.remove('hidden');
+        editDepartmentModal.querySelector('.modal-content').classList.add('modal-active');
+        editDepartmentForm.reset();
+
+        editDepartmentIdInput.value = id;
+        editDepartmentIdInput.disabled = true; // ID 不可編輯
+        editDepartmentNameInput.value = name;
+    }
+
+    function closeEditDepartmentModal() {
+        editDepartmentModal.classList.add('hidden');
+        editDepartmentModal.querySelector('.modal-content').classList.remove('modal-active');
+    }
+
+    async function handleEditDepartment(event) {
+        event.preventDefault();
+        const formData = new FormData(editDepartmentForm);
+        const deptData = {
+            ID: editDepartmentIdInput.value, // ID 不可改
+            Name: formData.get('dept-name').trim()
+        };
+
+        if (!deptData.ID || !deptData.Name) {
+            showToast('請填寫所有必填欄位 (部門 ID, 部門名稱)！', 'error');
+            return;
+        }
+
+        showToast('編輯部門中...', 'info');
+        try {
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result.success) {
+                        showToast(result.message, 'success');
+                        closeEditDepartmentModal();
+                        loadDepartmentManagementSection(); // 刷新部門列表
+                    } else {
+                        showToast('編輯失敗: ' + result.message, 'error');
+                    }
+                })
+                .withFailureHandler(function(error) {
+                    showToast('與後端通訊失敗: ' + error.message, 'error');
+                })
+                .editDepartment(SESSION_TOKEN, deptData);
+        } catch (error) {
+            showToast('發生錯誤: ' + error.message, 'error');
+        }
+    }
+
+    async function deleteDepartment(id, name) {
+        // Note: Using native confirm. For better UX, replace with a custom modal.
+        if (!window.confirm(`確定要刪除部門 ${name} (${id}) 嗎？這將無法復原，且會檢查是否有相關聯的 Objective 或用戶！`)) {
+            return;
+        }
+        showToast('刪除部門中...', 'info');
+        try {
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result.success) {
+                        showToast(result.message, 'success');
+                        loadDepartmentManagementSection(); // 刷新部門列表
+                    } else {
+                        showToast('刪除失敗: ' + result.message, 'error');
+                    }
+                })
+                .withFailureHandler(function(error) {
+                    showToast('與後端通訊失敗: ' + error.message, 'error');
+                })
+                .deleteDepartment(SESSION_TOKEN, id);
+        } catch (error) {
+            showToast('發生錯誤: ' + error.message, 'error');
+        }
+    }
+
+
+    // --- 評論系統函數 ---
+    /**
+     * 載入指定 Objective 或 Key Result 的評論
+     * @param {string} entityId - 關聯的 Objective 或 Key Result ID
+     */
+    async function loadComments(entityId) {
+        if (!detailCommentsList) return; // 確保元素存在
+
+        detailCommentsList.innerHTML = '<p class="text-gray-500">載入評論中...</p>';
+        try {
+            google.script.run
+                .withSuccessHandler(function(jsonStringResult) {
+                    const result = JSON.parse(jsonStringResult);
+                    if (result.error) {
+                        detailCommentsList.innerHTML = `<p class="text-red-500">載入評論失敗: ${result.error}</p>`;
+                        return;
+                    }
+                    if (result.comments.length === 0) {
+                        detailCommentsList.innerHTML = '<p class="text-gray-500">暫無評論。</p>';
+                        return;
+                    }
+                    detailCommentsList.innerHTML = result.comments.map(comment => `
+                        <div class="bg-gray-100 p-3 rounded-lg shadow-sm">
+                            <p class="font-medium text-gray-800">${comment.CommenterEmail || '未知用戶'} <span class="text-gray-500 text-xs ml-2">${comment.Timestamp || 'N/A'}</span></p>
+                            <p class="text-gray-700 mt-1">${comment.CommentText || ''}</p>
+                        </div>
+                    `).join('');
+                })
+                .withFailureHandler(function(error) {
+                    detailCommentsList.innerHTML = `<p class="text-red-500">與後端通訊失敗: ${error.message}</p>`;
+                })
+                .getComments(SESSION_TOKEN, entityId); // 傳遞會話令牌
+        } catch (error) {
+            detailCommentsList.innerHTML = `<p class="text-red-500">載入評論錯誤: ${error.message}</p>`;
+        }
+    }
+
+    /**
+     * 處理新增評論的提交
+     */
+    async function handleAddComment() {
+        const entityId = detailObjectiveIdInput.value; // 評論針對 Objective ID
+        const commentText = detailCommentTextInput.value.trim();
+
+        if (!entityId) {
+            showToast('無法關聯評論到 Objective。', 'error');
+            return;
+        }
+        if (!commentText) {
+            showToast('評論內容不能為空。', 'error');
+            return;
+        }
+
+        showToast('發布評論中...', 'info');
+        try {
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (result.success) {
+                        showToast(result.message, 'success');
+                        detailCommentTextInput.value = ''; // 清空輸入框
+                        loadComments(entityId); // 重新載入評論
+                    } else {
+                        showToast('發布評論失敗: ' + result.message, 'error');
+                    }
+                })
+                .withFailureHandler(function(error) {
+                    showToast('與後端通訊失敗: ' + error.message, 'error');
+                })
+                .addComment(SESSION_TOKEN, { EntityID: entityId, CommentText: commentText }); // 傳遞會話令牌
+        } catch (error) {
+            showToast('發生錯誤: ' + error.message, 'error');
+        }
+    }
+</script>
+</html>
