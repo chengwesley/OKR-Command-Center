@@ -4,7 +4,7 @@
  */
 
 // 請改成你自己的試算表 ID
-const SPREADSHEET_ID = 'Kdan_OKR_Data';
+const SPREADSHEET_ID = '1rVCQ3EnWG-s4lLupa2k4wsydLoCSvEoYegVIY06n22E';
 
 // 工作表名稱
 const SHEET_USERS = 'Users';
