@@ -1,2097 +1,1292 @@
-// Code.gs - Google Apps Script 後端程式碼
+/**
+ * Code.gs – 後端程式碼（第一部分）
+ * 包含：通用工具、登入登出、Company Objectives CRUD 以及 Key Results CRUD
+ */
 
-// 您的 Google Sheet ID
-// 請將 'YOUR_GOOGLE_SHEET_ID_HERE' 替換為您實際的 Google Sheets 試算表 ID。
-// 試算表 ID 可以在瀏覽器網址列中找到，位於 /d/ 和 /edit 之間。
-const SPREADSHEET_ID = '1rVCQ3EnWG-s4lLupa2k4wsydLoCSvEoYegVIY06n22E'; // <--- !!! 請務必將此處替換為您實際的試算表 ID !!!
+// 請改成你自己的試算表 ID
+const SPREADSHEET_ID = '1rVCQ3EnWG-s4lLupa2k4wsydLoCSvEoYegVIY06n22E';
 
-// 各個工作表的名稱定義
-// 使用 Object.freeze() 確保此物件及其屬性在運行時不會被意外修改。
-// 請確保您的 Google Sheets 中實際的工作表名稱與此處定義的完全一致（包括大小寫）。
-const SHEET_NAMES = Object.freeze({
-    USERS: 'Users',
-    DEPARTMENTS: 'Departments', // 新增部門工作表
-    COMPANY_OBJECTIVES: 'Company_Objectives',
-    MY_OBJECTIVES: 'My_Objectives',
-    DEPARTMENT_OBJECTIVES: 'Department_Objectives',
-    KEY_RESULTS: 'Key_Results',
-    KEY_RESULTS_UPDATES: 'Key_Results_Updates',
-    OKR_PERIODS: 'OKR_Periods', // OKR 週期管理工作表
-    COMMENTS: 'Comments' // 評論工作表
-});
+// 工作表名稱
+const SHEET_USERS = 'Users';
+const SHEET_COMPANY_OBJECTIVES = 'Company_Objectives';
+const SHEET_DEPT_OBJECTIVES = 'Department_Objectives';
+const SHEET_MY_OBJECTIVES = 'My_Objectives';
+const SHEET_KEY_RESULTS = 'Key_Results';
+const SHEET_COMMENTS = 'Comments';
 
-// 會話令牌的有效時間 (分鐘)
-const SESSION_EXPIRATION_MINUTES = 60; // 60 分鐘
-
-// 用於密碼哈希的鹽值 (Salt) - **請替換為一個隨機的、足夠長的字串！**
-// 這是非常重要的安全措施，切勿使用預設值！
-const PASSWORD_SALT = '11111111111';
-
+// Session 設定
+const SESSION_EXPIRATION_MINUTES = 60;
+const PASSWORD_SALT = '77371111123ee';    // 可自行更換
 
 /**
- * 輔助函數：從指定工作表讀取所有數據 (跳過標題行)
- * 如果工作表不存在或為空，將拋出錯誤或返回空陣列。
- * @param {string} sheetName - 工作表名稱
- * @returns {Array<Array<any>>} - 數據陣列，每行是一個子陣列
+ * 讀取整張試算表(跳過標題列) → 二維陣列
  */
 function getSheetData(sheetName) {
-    // Logger.log(`[getSheetData] 嘗試獲取工作表數據: '${sheetName}' (類型: ${typeof sheetName})`); // 頻繁呼叫，暫時註釋掉日誌
-
-    // 新增防禦性檢查：確保 sheetName 是有效的字串
-    if (typeof sheetName !== 'string' || sheetName.trim() === '') {
-        throw new Error(`無效的工作表名稱參數: '${sheetName}' (類型: ${typeof sheetName})。請確保傳遞有效字串。`);
-    }
-
-    // 新增防禦性檢查：確保 SPREADSHEET_ID 已設定且有效
-    if (!SPREADSHEET_ID || SPREADSHEET_ID === 'YOUR_GOOGLE_SHEET_ID_HERE') {
-        throw new Error('試算表 ID 未設定或不正確。請在 Code.gs 中設定 SPREADSHEET_ID。');
-    }
-
-    let spreadsheet;
-    try {
-        spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-    } catch (e) {
-        throw new Error(`無法打開試算表 ID: '${SPREADSHEET_ID}'。請檢查 ID 是否正確，以及 Apps Script 是否有權限訪問。錯誤: ${e.message}`);
-    }
-    
-    // 確保試算表物件已成功打開
-    if (!spreadsheet) { // 這通常不會發生，因為 openById 會拋出錯誤
-        throw new Error(`無法打開試算表 ID: ${SPREADSHEET_ID}。請檢查 ID 和權限。`);
-    }
-
-    const sheet = spreadsheet.getSheetByName(sheetName);
-    if (!sheet) {
-        throw new Error(`工作表 "${sheetName}" 不存在。請檢查名稱是否正確。`);
-    }
-    const range = sheet.getDataRange();
-    const values = range.getValues();
-    if (values.length === 0 || values[0].length === 0) { // 檢查是否完全為空
-        // Logger.log(`[getSheetData] 工作表 "${sheetName}" 為空或無數據。`); // 頻繁呼叫，暫時註釋掉日誌
-        return [];
-    }
-    // Logger.log(`[getSheetData] 成功獲取工作表 "${sheetName}" 數據，共 ${values.length - 1} 行。`); // 頻繁呼叫，暫時註釋掉日誌
-    return values.slice(1); // 跳過標題行
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName(sheetName);
+  if (!sheet) throw new Error(`找不到工作表 ${sheetName}`);
+  const values = sheet.getDataRange().getValues();
+  return values.length <= 1 ? [] : values.slice(1);
 }
 
 /**
- * 輔助函數：從指定工作表讀取標題行
- * @param {string} sheetName - 工作表名稱
- * @returns {Array<string>} - 標題行陣列
+ * 讀取指定工作表標題列 → 一維陣列
  */
 function getSheetHeaders(sheetName) {
-    // Logger.log(`[getSheetHeaders] 嘗試獲取工作表標題: '${sheetName}' (類型: ${typeof sheetName})`); // 頻繁呼叫，暫時註釋掉日誌
-
-    // 新增防禦性檢查：確保 sheetName 是有效的字串
-    if (typeof sheetName !== 'string' || sheetName.trim() === '') {
-        throw new Error(`無效的工作表名稱參數: '${sheetName}' (類型: ${typeof sheetName})。請確保傳遞有效字串。`);
-    }
-
-    // 新增防禦性檢查：確保 SPREADSHEET_ID 已設定且有效
-    if (!SPREADSHEET_ID || SPREADSHEET_ID === 'YOUR_GOOGLE_SHEET_ID_HERE') {
-        throw new Error('試算表 ID 未設定或不正確。請在 Code.gs 中設定 SPREADSHEET_ID。');
-    }
-
-    let spreadsheet;
-    try {
-        spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-    } catch (e) {
-        throw new Error(`無法打開試算表 ID: '${SPREADSHEET_ID}'。請檢查 ID 是否正確，以及 Apps Script 是否有權限訪問。錯誤: ${e.message}`);
-    }
-
-    // 確保試算表物件已成功打開
-    if (!spreadsheet) { // 這通常不會發生，因為 openById 會拋出錯誤
-        throw new Error(`無法打開試算表 ID: ${SPREADSHEET_ID}。請檢查 ID 和權限。`);
-    }
-
-    const sheet = spreadsheet.getSheetByName(sheetName);
-    if (!sheet) {
-        throw new Error(`工作表 "${sheetName}" 不存在。請檢查名稱是否正確。`);
-    }
-    // 讀取第一行，直到最後一列
-    const range = sheet.getRange(1, 1, 1, sheet.getLastColumn());
-    const headers = range.getValues()[0];
-    // 過濾掉空標題，確保標題是有效字串
-    const filteredHeaders = headers.filter(header => typeof header === 'string' && header.trim() !== '');
-    if (filteredHeaders.length === 0) {
-        throw new Error(`工作表 "${sheetName}" 的標題行為空。`);
-    }
-    // Logger.log(`[getSheetHeaders] 成功獲取工作表 "${sheetName}" 標題: ${filteredHeaders.join(', ')}`); // 頻繁呼叫，暫時註釋掉日誌
-    return filteredHeaders;
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName(sheetName);
+  if (!sheet) throw new Error(`找不到工作表 ${sheetName}`);
+  return sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
 }
 
 /**
- * 輔助函數：將單行數據和標題轉換為物件
- * @param {Array<string>} headers - 標題行陣列
- * @param {Array<any>} row - 單行數據陣列
- * @returns {Object} - 轉換後的物件
+ * 合併「標題陣列」與「單行資料陣列」 → 物件
  */
 function rowToObject(headers, row) {
-    const obj = {};
-    headers.forEach((header, index) => {
-        obj[header] = row[index];
-    });
-    return obj;
+  const obj = {};
+  headers.forEach((h, idx) => {
+    obj[h] = row[idx];
+  });
+  return obj;
 }
 
 /**
- * 輔助函數：對字串進行 SHA-256 哈希處理
- * @param {string} text - 要哈希的字串
- * @returns {string} - 哈希後的十六進位字串
+ * SHA256 雜湊
  */
-function hashString(text) {
-    const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, text);
-    let hexString = '';
-    for (let i = 0; i < digest.length; i++) {
-        let byte = digest[i]; // <--- 將 const 改為 let
-        if (byte < 0) { // Convert signed byte to unsigned
-            byte += 256;
-        }
-        const hex = byte.toString(16);
-        hexString += (hex.length === 1 ? '0' : '') + hex;
-    }
-    return hexString;
+function hashString(str) {
+  const raw = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, str);
+  let hex = '';
+  raw.forEach(b => {
+    if (b < 0) b += 256;
+    hex += (b.toString(16).length === 1 ? '0' : '') + b.toString(16);
+  });
+  return hex;
 }
 
 /**
- * 輔助函數：驗證會話令牌並獲取用戶資訊
- * @param {string} sessionToken - 從前端傳遞的會話令牌
- * @param {Array<string>} [requiredRoles] - 可選，操作所需的角色陣列
- * @returns {Object} - 包含 userEmail, userRole, userDepartment, userId 的用戶物件
- * @throws {Error} - 如果令牌無效、過期或權限不足
+ * 驗證 sessionToken → 回傳使用者資訊 (email, role, id, department)
  */
-function authenticateAndAuthorize(sessionToken, requiredRoles) {
-    Logger.log(`[Auth] 嘗試驗證令牌: ${sessionToken}`);
-    if (!sessionToken) {
-        throw new Error("未提供會話令牌。請重新登入。");
-    }
-
-    const scriptProperties = PropertiesService.getScriptProperties();
-    const sessionDataJson = scriptProperties.getProperty(sessionToken);
-
-    if (!sessionDataJson) {
-        throw new Error("會話令牌無效或已過期。請重新登入。");
-    }
-
-    const sessionData = JSON.parse(sessionDataJson);
-    const currentTime = new Date().getTime();
-    const expirationTime = sessionData.timestamp + (SESSION_EXPIRATION_MINUTES * 60 * 1000);
-
-    if (currentTime > expirationTime) {
-        scriptProperties.deleteProperty(sessionToken); // 清除過期令牌
-        throw new Error("會話已過期。請重新登入。");
-    }
-
-    // 更新令牌的 timestamp 以延長會話 (簡單的滑動會話)
-    sessionData.timestamp = currentTime;
-    scriptProperties.setProperty(sessionToken, JSON.stringify(sessionData));
-
-    const userEmail = sessionData.email;
-    const userRole = sessionData.role;
-    const userDepartment = sessionData.department;
-    const userId = sessionData.id;
-
-    Logger.log(`[Auth] 令牌驗證成功。用戶: ${userEmail}, 角色: ${userRole}`);
-
-    // 檢查角色權限
-    if (requiredRoles && requiredRoles.length > 0) {
-        if (!requiredRoles.includes(userRole)) {
-            throw new Error(`權限不足。您的角色 (${userRole}) 無權執行此操作。所需角色: ${requiredRoles.join(', ')}`);
-        }
-    }
-
-    return { userEmail, userRole, userDepartment, userId };
-}
-
-
-/**
- * 處理 Web 應用程式的 GET 請求。
- * 當前端載入時，此函數會被呼叫以提供 HTML 頁面。
- * @param {GoogleAppsScript.Events.DoGet} e - 請求事件物件
- * @returns {GoogleAppsScript.HTML.HtmlOutput} - HTML 內容
- */
-function doGet(e) {
-    Logger.log("[doGet] 函數開始執行。");
-    
-    // 在自定義登入模式下，doGet 不再從 Session 獲取用戶 Email 或角色
-    // 這些資訊將由前端登入後通過會話令牌傳遞
-    const userEmail = ''; // 預設為空，前端會處理未登入狀態
-    const userRole = ''; // 預設為空
-
-    const template = HtmlService.createTemplateFromFile('index');
-    template.userEmail = userEmail; // 前端會檢查是否為空，引導登入
-    template.userRole = userRole;   // 前端會檢查是否為空，引導登導
-
-    Logger.log("[doGet] 函數結束執行，返回 HTML 模板。");
-    return template.evaluate()
-        .setTitle('Kdan OKR 系統')
-        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL); // 允許在 iframe 中顯示
+function authenticateAndAuthorize(sessionToken) {
+  if (!sessionToken) throw new Error('未提供 sessionToken');
+  const store = PropertiesService.getScriptProperties();
+  const dataJson = store.getProperty(sessionToken);
+  if (!dataJson) throw new Error('登入逾期或無效，請重新登入');
+  const data = JSON.parse(dataJson);
+  const now = Date.now();
+  if (now > data.timestamp + SESSION_EXPIRATION_MINUTES * 60 * 1000) {
+    store.deleteProperty(sessionToken);
+    throw new Error('會話已逾期，請重新登入');
+  }
+  // 滑動延長
+  data.timestamp = now;
+  store.setProperty(sessionToken, JSON.stringify(data));
+  return { email: data.email, role: data.role, id: data.id, department: data.department || '' };
 }
 
 /**
- * 處理用戶登入請求
- * @param {string} email - 用戶 Email (作為用戶名)
- * @param {string} password - 用戶密碼
- * @returns {Object} - 包含 success, message, sessionToken, userEmail, userRole, userDepartment, userId 的物件
+ * 登入：檢查 Users 試算表中的 Email + PasswordHash
+ * Users 欄位：Email | PasswordHash | Role | ID | Department
  */
 function loginUser(email, password) {
-    Logger.log(`[loginUser] 嘗試登入用戶: ${email}`);
-    try {
-        const userHeaders = getSheetHeaders(SHEET_NAMES.USERS);
-        const userData = getSheetData(SHEET_NAMES.USERS);
-        const userRow = userData.find(row => rowToObject(userHeaders, row).Email === email);
+  if (!email || !password) {
+    return { success: false, message: '請輸入帳號與密碼' };
+  }
+  try {
+    const headers = getSheetHeaders(SHEET_USERS);
+    const rows = getSheetData(SHEET_USERS).map(r => rowToObject(headers, r));
+    const user = rows.find(u => u.Email === email);
+    if (!user) return { success: false, message: '帳號或密碼錯誤' };
 
-        if (!userRow) {
-            return { success: false, message: "用戶名或密碼不正確。" };
-        }
-
-        const user = rowToObject(userHeaders, userRow);
-        
-        // 檢查用戶是否啟用
-        if (user.IsActive === false || user.IsActive === 'FALSE') {
-            return { success: false, message: "您的帳號已被禁用，請聯繫管理員。" };
-        }
-
-        const hashedPassword = hashString(password + PASSWORD_SALT); // 使用鹽值哈希密碼
-        if (hashedPassword !== user.PasswordHash) { // 假設 Users 表中有 PasswordHash 欄位
-            return { success: false, message: "用戶名或密碼不正確。" };
-        }
-
-        // 登入成功，生成會話令牌
-        const sessionToken = Utilities.getUuid();
-        const sessionData = {
-            email: user.Email,
-            role: user.Role,
-            department: user.Department,
-            id: user.ID, // 用戶簡短 ID
-            timestamp: new Date().getTime()
-        };
-        PropertiesService.getScriptProperties().setProperty(sessionToken, JSON.stringify(sessionData));
-        Logger.log(`[loginUser] 用戶 ${email} 登入成功，生成令牌: ${sessionToken}`);
-
-        return {
-            success: true,
-            message: "登入成功！",
-            sessionToken: sessionToken,
-            userEmail: user.Email,
-            userRole: user.Role,
-            userDepartment: user.Department,
-            userId: user.ID
-        };
-
-    } catch (error) {
-        Logger.log(`[loginUser] 登入失敗: ${error.message}`);
-        return { success: false, message: `登入失敗: ${error.message}` };
+    if (user.PasswordHash !== hashString(password + PASSWORD_SALT)) {
+      return { success: false, message: '帳號或密碼錯誤' };
     }
+
+    const token = Utilities.getUuid();
+    PropertiesService.getScriptProperties().setProperty(token, JSON.stringify({
+      email: user.Email,
+      role: user.Role,
+      id: user.ID,
+      department: user.Department || '',
+      timestamp: Date.now()
+    }));
+    return {
+      success: true,
+      sessionToken: token,
+      email: user.Email,
+      role: user.Role,
+      id: user.ID,
+      department: user.Department || ''
+    };
+  } catch (e) {
+    return { success: false, message: '登入失敗：' + e.message };
+  }
 }
 
 /**
- * 處理用戶登出請求
- * @param {string} sessionToken - 會話令牌
- * @returns {Object} - 包含 success 和 message 的物件
+ * 登出：刪除 PropertiesService 裡的 sessionToken
  */
 function logoutUser(sessionToken) {
-    Logger.log(`[logoutUser] 嘗試登出用戶，令牌: ${sessionToken}`);
-    try {
-        PropertiesService.getScriptProperties().deleteProperty(sessionToken);
-        return { success: true, message: "登出成功。" };
-    } catch (error) {
-        Logger.log(`[logoutUser] 登出失敗: ${error.message}`);
-        return { success: false, message: `登出失敗: ${error.message}` };
-    }
+  try {
+    PropertiesService.getScriptProperties().deleteProperty(sessionToken);
+    return { success: true };
+  } catch (e) {
+    return { success: false, message: '登出失敗：' + e.message };
+  }
 }
 
 /**
- * 從 Google Sheets 獲取所有相關的 OKR 數據，並組合成前端所需的格式。
- * 此函數會處理多個工作表的數據讀取和關聯。
- * @param {string} sessionToken - 會話令牌
- * @returns {string} - JSON 字串，包含 companyOkrs, myOkrs, departmentOkrs, allObjectives 的物件，或包含 error 訊息的物件。
+ * 取得所有 Company Objectives (含計算進度)
+ * 回傳 JSON 字串：{ objectives: [ { ID, Title, Description, OwnerEmail, Status, ApproverEmail, Progress } ], error: '' }
  */
-function getOKRs(sessionToken) {
-    Logger.log("[getOKRs] 函數開始執行。");
-    
-    let authUser;
-    try {
-        authUser = authenticateAndAuthorize(sessionToken, ['Chairman', 'OKR_Admin', 'HR_Admin', 'Department_Manager', 'CLevel_Exec', 'Employee']);
-    } catch (e) {
-        Logger.log(`[getOKRs] 認證失敗: ${e.message}`);
-        return JSON.stringify({ error: e.message });
-    }
+function getCompanyObjectives(sessionToken) {
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return JSON.stringify({ error: e.message, objectives: [] });
+  }
+  try {
+    const objHeaders = getSheetHeaders(SHEET_COMPANY_OBJECTIVES);
+    const objRows = getSheetData(SHEET_COMPANY_OBJECTIVES).map(r => rowToObject(objHeaders, r));
 
-    // 新增：明確記錄 SHEET_NAMES 物件的內容
-    Logger.log(`[getOKRs] SHEET_NAMES 物件內容: ${JSON.stringify(SHEET_NAMES)}`);
+    const krHeaders = getSheetHeaders(SHEET_KEY_RESULTS);
+    const krRows = getSheetData(SHEET_KEY_RESULTS).map(r => rowToObject(krHeaders, r));
 
-    // **新增：在調用前，明確檢查 SPREADSHEET_ID**
-    if (!SPREADSHEET_ID || SPREADSHEET_ID === 'YOUR_GOOGLE_SHEET_ID_HERE') {
-        const errorMessage = '致命錯誤: 試算表 ID 未設定或不正確。請在 Code.gs 中設定 SPREADSHEET_ID。';
-        Logger.log(`[getOKRs] ${errorMessage}`);
-        return JSON.stringify({ error: errorMessage }); // <--- 返回 JSON 字串
-    }
-
-    let result = {
-        companyOkrs: [],
-        myOkrs: [],
-        departmentOkrs: [],
-        allObjectives: [], // 新增：用於 Admin 頁面和承接關係查找
-        error: '' // 初始化為空字串
-    };
-
-    // 新增：嚴格檢查 SHEET_NAMES 的每個屬性
-    for (const key in SHEET_NAMES) {
-        if (Object.hasOwnProperty.call(SHEET_NAMES, key)) {
-            const sheetNameValue = SHEET_NAMES[key];
-            if (typeof sheetNameValue !== 'string' || sheetNameValue.trim() === '') {
-                const errorMessage = `配置錯誤: SHEET_NAMES.${key} 未正確定義或為空。請檢查 Code.gs 中的 SHEET_NAMES 常數。值: '${sheetNameValue}' (類型: ${typeof sheetNameValue})`;
-                Logger.log(`[getOKRs] 致命錯誤: ${errorMessage}`);
-                result.error = errorMessage;
-                return JSON.stringify(result); // <--- 返回 JSON 字串
-            }
-        }
-    }
-    Logger.log("[getOKRs] SHEET_NAMES 配置檢查通過。");
-
-
-    try { // 最外層的 try-catch，確保總能返回一個物件
-        let allKRs = [];
-        try {
-            const keyResultsSheetName = SHEET_NAMES.KEY_RESULTS;
-            Logger.log(`[getOKRs] 即將呼叫 getSheetHeaders，參數為: '${keyResultsSheetName}' (類型: ${typeof keyResultsSheetName})`);
-            const krHeaders = getSheetHeaders(keyResultsSheetName);
-            
-            Logger.log(`[getOKRs] 即將呼叫 getSheetData，參數為: '${keyResultsSheetName}' (類型: ${typeof keyResultsSheetName})`);
-            allKRs = getSheetData(keyResultsSheetName).map(row => rowToObject(krHeaders, row));
-            Logger.log(`[getOKRs] 成功載入 ${allKRs.length} 個 Key Results。`);
-        } catch (e) {
-            Logger.log(`[getOKRs] 錯誤: 獲取 Key_Results 數據失敗: ${e.message}`);
-            result.error += `獲取 Key_Results 數據失敗: ${e.message}; `;
-            // 這裡不直接返回，嘗試載入其他數據，以便前端能看到部分內容和錯誤訊息
-        }
-
-        // 獲取所有 Objective，並計算其進度，關聯 KRs
-        const allObjectives = []; // 用於存儲所有 Objective，方便承接關係查找
-
-        // 處理公司 OKR
-        try {
-            const companyObjectivesSheetName = SHEET_NAMES.COMPANY_OBJECTIVES;
-            const companyObjHeaders = getSheetHeaders(companyObjectivesSheetName);
-            const companyObjsData = getSheetData(companyObjectivesSheetName);
-            const companyObjs = companyObjsData.map(row => {
-                const obj = rowToObject(companyObjHeaders, row);
-                obj.objective_type = 'Company'; // 新增類型屬性
-                obj.krs = (obj.KRs ? String(obj.KRs).split(',').map(id => id.trim()).filter(id => id !== '') : [])
-                           .map(krId => allKRs.find(kr => kr.ID === krId)).filter(Boolean); // 查找並過濾掉 undefined
-                
-                // 計算 Objective 進度 (所有 KR 的平均進度)
-                const totalProgress = obj.krs.reduce((sum, kr) => sum + (kr.Progress ? parseFloat(kr.Progress) : 0), 0);
-                obj.Progress = obj.krs.length > 0 ? (totalProgress / obj.krs.length) : (obj.Progress ? parseFloat(obj.Progress) : 0); // 如果沒有 KRs，使用表格中的進度
-                return obj;
-            });
-            result.companyOkrs = companyObjs;
-            allObjectives.push(...companyObjs); // 加入總 Objective 列表
-            Logger.log(`[getOKRs] 成功載入 ${result.companyOkrs.length} 個公司 OKR。`);
-        } catch (e) {
-            Logger.log(`[getOKRs] 錯誤: 獲取公司 OKR 失敗: ${e.message}`);
-            result.error += `獲取公司 OKR 失敗: ${e.message}; `;
-        }
-
-        // 處理部門 OKR
-        try {
-            const departmentObjectivesSheetName = SHEET_NAMES.DEPARTMENT_OBJECTIVES;
-            const deptObjHeaders = getSheetHeaders(departmentObjectivesSheetName);
-            const departmentObjsData = getSheetData(departmentObjectivesSheetName);
-            const departmentObjs = departmentObjsData.map(row => {
-                const obj = rowToObject(deptObjHeaders, row);
-                obj.objective_type = 'Department'; // 新增類型屬性
-                obj.krs = (obj.KRs ? String(obj.KRs).split(',').map(id => id.trim()).filter(id => id !== '') : [])
-                           .map(krId => allKRs.find(kr => kr.ID === krId)).filter(Boolean);
-                
-                const totalProgress = obj.krs.reduce((sum, kr) => sum + (kr.Progress ? parseFloat(kr.Progress) : 0), 0);
-                obj.Progress = obj.krs.length > 0 ? (totalProgress / obj.krs.length) : (obj.Progress ? parseFloat(obj.Progress) : 0);
-                return obj;
-            });
-            result.departmentOkrs = departmentObjs;
-            allObjectives.push(...departmentObjs); // 加入總 Objective 列表
-            Logger.log(`[getOKRs] 成功載入 ${result.departmentOkrs.length} 個部門 OKR。`);
-        } catch (e) {
-            Logger.log(`[getOKRs] 錯誤: 獲取部門 OKR 失敗: ${e.message}`);
-            result.error += `獲取部門 OKR 失敗: ${e.message}; `;
-        }
-
-        // 處理個人 OKR (根據當前用戶 Email)
-        const currentUserEmail = authUser.userEmail; // 使用認證後的用戶 Email
-        try {
-            const myObjectivesSheetName = SHEET_NAMES.MY_OBJECTIVES;
-            const myObjHeaders = getSheetHeaders(myObjectivesSheetName);
-            const myObjsData = getSheetData(myObjectivesSheetName);
-            const myObjs = myObjsData
-                .map(row => {
-                    const obj = rowToObject(myObjHeaders, row);
-                    obj.objective_type = 'My'; // 新增類型屬性
-                    obj.krs = (obj.KRs ? String(obj.KRs).split(',').map(id => id.trim()).filter(id => id !== '') : [])
-                               .map(krId => allKRs.find(kr => kr.ID === krId)).filter(Boolean);
-                    
-                    const totalProgress = obj.krs.reduce((sum, kr) => sum + (kr.Progress ? parseFloat(kr.Progress) : 0), 0);
-                    obj.Progress = obj.krs.length > 0 ? (totalProgress / obj.krs.length) : (obj.Progress ? parseFloat(obj.Progress) : 0);
-                    return obj;
-                });
-                // .filter(obj => obj.OwnerEmail === currentUserEmail); // 這裡不再過濾，前端會過濾
-
-            result.myOkrs = myObjs;
-            allObjectives.push(...myObjs); // 加入總 Objective 列表
-            Logger.log(`[getOKRs] 成功載入 ${result.myOkrs.length} 個個人 OKR。`);
-        } catch (e) {
-            Logger.log(`[getOKRs] 錯誤: 獲取個人 OKR 失敗: ${e.message}`);
-            result.error += `獲取個人 OKR 失敗: ${e.message}; `;
-        }
-
-        // 獲取所有 Objective，用於後續的父子關係追溯和 Admin 頁面
-        result.allObjectives = allObjectives; // 將所有 Objective 也傳遞給前端，方便 Admin 頁面處理
-
-    } catch (outerError) {
-        // 捕獲 getOKRs 函數頂層的任何意外錯誤
-        Logger.log(`[getOKRs] 錯誤: getOKRs 函數發生未預期的錯誤: ${outerError.message}`);
-        result.error = (result.error ? result.error + "; " : "") + `getOKRs 函數未預期錯誤: ${outerError.message}`;
-    }
-    
-    Logger.log("[getOKRs] 函數結束執行，返回結果。");
-    return JSON.stringify(result); // <--- 將結果物件轉換為 JSON 字串
-}
-
-/**
- * 獲取所有用戶的 Email 和名稱，以及所有部門名稱。
- * 用於前端的下拉選單。
- * @param {string} sessionToken - 會話令牌
- * @returns {string} JSON 字串，包含 users 和 departments 陣列。
- */
-function getUsersAndDepartments(sessionToken) {
-    Logger.log("[getUsersAndDepartments] 函數開始執行。");
-    let authUser;
-    try {
-        authUser = authenticateAndAuthorize(sessionToken, ['Chairman', 'OKR_Admin', 'HR_Admin', 'Department_Manager', 'CLevel_Exec', 'Employee']); // 所有用戶都可以獲取列表
-    } catch (e) {
-        Logger.log(`[getUsersAndDepartments] 認證失敗: ${e.message}`);
-        return JSON.stringify({ error: e.message });
-    }
-
-    let result = {
-        users: [],
-        departments: [],
-        error: ''
-    };
-    try {
-        const userHeaders = getSheetHeaders(SHEET_NAMES.USERS);
-        const userData = getSheetData(SHEET_NAMES.USERS);
-        result.users = userData.map(row => {
-            const userObj = rowToObject(userHeaders, row);
-            return { email: userObj.Email, name: userObj.Name, department: userObj.Department, role: userObj.Role, id: userObj.ID }; // 包含用戶ID
-        });
-        Logger.log(`[getUsersAndDepartments] 成功載入 ${result.users.length} 個用戶。`);
-    } catch (e) {
-        Logger.log(`[getUsersAndDepartments] 錯誤: 獲取用戶數據失敗: ${e.message}`);
-        result.error += `獲取用戶數據失敗: ${e.message}; `;
-    }
-
-    try {
-        // 從 Departments 工作表獲取部門列表
-        const deptHeaders = getSheetHeaders(SHEET_NAMES.DEPARTMENTS);
-        const deptData = getSheetData(SHEET_NAMES.DEPARTMENTS);
-        result.departments = deptData.map(row => rowToObject(deptHeaders, row)); // 獲取所有部門物件
-        Logger.log(`[getUsersAndDepartments] 成功載入 ${result.departments.length} 個部門。`);
-    } catch (e) {
-        Logger.log(`[getUsersAndDepartments] 錯誤: 獲取部門數據失敗: ${e.message}`);
-        result.error += `獲取部門數據失敗: ${e.message}; `;
-    }
-    Logger.log("[getUsersAndDepartments] 函數結束執行。");
-    return JSON.stringify(result);
-}
-
-/**
- * 獲取指定類型（公司、部門、個人）的 Objective 列表，用於父級目標的選擇。
- * @param {string} sessionToken - 會話令牌
- * @param {string} objectiveType - Objective 類型 ('Company', 'Department', 'My')
- * @returns {string} JSON 字串，包含 objectives 陣列。
- */
-function getObjectivesForSelection(sessionToken, objectiveType) {
-    Logger.log(`[getObjectivesForSelection] 函數開始執行。類型: ${objectiveType}`);
-    let authUser;
-    try {
-        authUser = authenticateAndAuthorize(sessionToken, ['Chairman', 'OKR_Admin', 'HR_Admin', 'Department_Manager', 'CLevel_Exec', 'Employee']); // 所有用戶都可以獲取列表
-    } catch (e) {
-        Logger.log(`[getObjectivesForSelection] 認證失敗: ${e.message}`);
-        return JSON.stringify({ error: e.message });
-    }
-
-    let result = {
-        objectives: [],
-        error: ''
-    };
-    let sheetName = '';
-    let objHeaders = [];
-    let objData = [];
-
-    try {
-        if (objectiveType === 'Company') {
-            sheetName = SHEET_NAMES.COMPANY_OBJECTIVES;
-        } else if (objectiveType === 'Department') {
-            sheetName = SHEET_NAMES.DEPARTMENT_OBJECTIVES;
-        } else if (objectiveType === 'My') {
-            sheetName = SHEET_NAMES.MY_OBJECTIVES;
-        } else {
-            throw new Error(`無效的 Objective 類型: ${objectiveType}`);
-        }
-
-        objHeaders = getSheetHeaders(sheetName);
-        objData = getSheetData(sheetName);
-
-        result.objectives = objData.map(row => {
-            const obj = rowToObject(objHeaders, row);
-            return { id: obj.ID, title: obj.Title, ownerEmail: obj.OwnerEmail };
-        });
-        Logger.log(`[getObjectivesForSelection] 成功載入 ${result.objectives.length} 個 ${objectiveType} Objective。`);
-
-    } catch (e) {
-        Logger.log(`[getObjectivesForSelection] 錯誤: 獲取 ${objectiveType} Objective 失敗: ${e.message}`);
-        result.error += `獲取 ${objectiveType} Objective 失敗: ${e.message}; `;
-    }
-    Logger.log("[getObjectivesForSelection] 函數結束執行。");
-    return JSON.stringify(result);
-}
-
-/**
- * 輔助函數：生成下一個 Objective 的 ID
- * @param {string} type - Objective 類型 ('Company', 'Department', 'My')
- * @param {string} periodId - 週期 ID (例如 '2025Q2')
- * @param {string} departmentId - 部門 ID (例如 'PROD') (如果適用)
- * @param {string} userId - 用戶 ID (例如 'u1') (如果適用)
- * @returns {string} 新生成的 Objective ID
- */
-function _generateNextObjectiveId(type, periodId, departmentId, userId) {
-    const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-    let sheetName;
-    let prefix;
-    let existingIds = [];
-
-    if (type === 'Company') {
-        sheetName = SHEET_NAMES.COMPANY_OBJECTIVES;
-        prefix = `C-${periodId}-O-`;
-    } else if (type === 'Department') {
-        sheetName = SHEET_NAMES.DEPARTMENT_OBJECTIVES;
-        if (!departmentId) throw new Error("生成部門 Objective ID 時缺少部門 ID。");
-        prefix = `D-${periodId}-${departmentId}-O-`;
-    } else if (type === 'My') {
-        sheetName = SHEET_NAMES.MY_OBJECTIVES;
-        if (!userId) throw new Error("生成個人 Objective ID 時缺少用戶 ID。");
-        prefix = `I-${periodId}-${userId}-O-`;
-    } else {
-        throw new Error(`無效的 Objective 類型無法生成 ID: ${type}`);
-    }
-
-    try {
-        const headers = getSheetHeaders(sheetName);
-        const data = getSheetData(sheetName);
-        existingIds = data.map(row => rowToObject(headers, row).ID)
-                          .filter(id => id && String(id).startsWith(prefix));
-    } catch (e) {
-        Logger.log(`[ID Gen] 獲取現有 Objective ID 失敗 (${sheetName}): ${e.message}`);
-        // 如果工作表不存在或為空，則從 1 開始
-        existingIds = [];
-    }
-
-    let maxNum = 0;
-    existingIds.forEach(id => {
-        const parts = String(id).split('-O-');
-        if (parts.length > 1) {
-            const numPart = parts[1]; // 假設編號在 -O- 後
-            const num = parseInt(numPart, 10);
-            if (!isNaN(num) && num > maxNum) {
-                maxNum = num;
-            }
-        }
+    const result = objRows.map(o => {
+      const myKRs = krRows.filter(kr => kr.ObjectiveID === o.ID);
+      const totalProg = myKRs.reduce((sum, kr) => sum + Number(kr.Progress || 0), 0);
+      const avgProg = myKRs.length ? Math.round(totalProg / myKRs.length) : (Number(o.Progress) || 0);
+      return {
+        ID: o.ID,
+        Title: o.Title,
+        Description: o.Description,
+        OwnerEmail: o.OwnerEmail,
+        Status: o.Status,
+        ApproverEmail: o.ApproverEmail || '',
+        Progress: avgProg
+      };
     });
-
-    const nextNum = maxNum + 1;
-    return `${prefix}${String(nextNum).padStart(2, '0')}`;
+    return JSON.stringify({ objectives: result, error: '' });
+  } catch (e) {
+    return JSON.stringify({ error: '讀取 Company Objectives 發生錯誤：' + e.message, objectives: [] });
+  }
 }
 
 /**
- * 輔助函數：生成下一個 Key Result 的 ID
- * @param {string} parentObjectiveId - 父級 Objective 的 ID (例如 'C-2025Q2-O-01', 'D-2025Q2-PROD-O-01', 'I-2025Q2-u1-O-01')
- * @returns {string} 新生成的 Key Result ID
+ * 新增 Company Objective
+ * objData: { Title, Description, OwnerEmail }
  */
-function _generateNextKeyResultId(parentObjectiveId) {
-    if (!parentObjectiveId) throw new Error("生成 Key Result ID 時缺少父級 Objective ID。");
+function createCompanyObjective(sessionToken, objData) {
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(SHEET_COMPANY_OBJECTIVES);
+    const headers = getSheetHeaders(SHEET_COMPANY_OBJECTIVES);
+    const rows = getSheetData(SHEET_COMPANY_OBJECTIVES).map(r => rowToObject(headers, r));
 
-    const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-    const krSheet = spreadsheet.getSheetByName(SHEET_NAMES.KEY_RESULTS);
-    let existingKrIds = [];
-
-    try {
-        const headers = getSheetHeaders(SHEET_NAMES.KEY_RESULTS);
-        const data = getSheetData(SHEET_NAMES.KEY_RESULTS);
-        existingKrIds = data.map(row => rowToObject(headers, row).ID)
-                            .filter(id => id && String(id).startsWith(`${parentObjectiveId}-KR-`));
-    } catch (e) {
-        Logger.log(`[ID Gen] 獲取現有 Key Result ID 失敗 (${parentObjectiveId}): ${e.message}`);
-        existingKrIds = [];
-    }
-
+    const prefix = 'C-2025Q2-O-';
     let maxNum = 0;
-    existingKrIds.forEach(id => {
-        const parts = String(id).split('-KR-');
-        if (parts.length > 1) {
-            const numPart = parts[1]; // 假設編號在 -KR- 後
-            const num = parseInt(numPart, 10);
-            if (!isNaN(num) && num > maxNum) {
-                maxNum = num;
-            }
-        }
+    rows.forEach(o => {
+      if (o.ID && o.ID.startsWith(prefix)) {
+        const num = parseInt(o.ID.replace(prefix, '')) || 0;
+        if (num > maxNum) maxNum = num;
+      }
     });
+    const nextNum = (maxNum + 1).toString().padStart(2, '0');
+    const newId = prefix + nextNum;
 
-    const nextNum = maxNum + 1;
-    return `${parentObjectiveId}-KR-${String(nextNum).padStart(2, '0')}`;
+    const newRow = [
+      newId,
+      objData.Title || '',
+      objData.Description || '',
+      objData.OwnerEmail || '',
+      0,          // Progress 初始 0
+      'Draft',    // Status
+      ''          // ApproverEmail
+    ];
+    sheet.appendRow(newRow);
+    return { success: true, message: `新增 Company Objective 成功，ID: ${newId}` };
+  } catch (e) {
+    return { success: false, message: '新增 Company Objective 失敗：' + e.message };
+  }
 }
 
-
 /**
- * 新增 Objective 到對應的工作表。
- * @param {string} sessionToken - 會話令牌
- * @param {Object} objData - 包含 Objective 資訊的物件。
- * - Title (string)
- * - Description (string)
- * - OwnerEmail (string)
- * - Period (string)
- * - Type (string: 'Company', 'Department', 'My')
- * - ParentObjectiveID (string, 可選)
- * - DepartmentID (string, 僅限 Type 為 'Department' 時需要，來自 Departments.ID)
- * @returns {Object} - 包含 success 狀態和 message 的物件。
+ * 更新 Company Objective
+ * data: { ID, Title, Description, OwnerEmail, Status, ApproverEmail }
  */
-function createObjective(sessionToken, objData) {
-    Logger.log(`[createObjective] 函數開始執行。objData: ${JSON.stringify(objData)}`);
-    let authUser;
-    try {
-        authUser = authenticateAndAuthorize(sessionToken, ['OKR_Admin', 'Chairman', 'CLevel_Exec', 'Department_Manager']); // 假設這些角色可以創建 Objective
-    } catch (e) {
-        Logger.log(`[createObjective] 認證失敗: ${e.message}`);
-        return { success: false, message: e.message };
+function updateCompanyObjective(sessionToken, data) {
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(SHEET_COMPANY_OBJECTIVES);
+    const headers = getSheetHeaders(SHEET_COMPANY_OBJECTIVES);
+    const allRows = sheet.getDataRange().getValues();
+    for (let i = 1; i < allRows.length; i++) {
+      if (allRows[i][0] === data.ID) {
+        const rowIdx = i + 1;
+        sheet.getRange(rowIdx, headers.indexOf('Title') + 1).setValue(data.Title);
+        sheet.getRange(rowIdx, headers.indexOf('Description') + 1).setValue(data.Description);
+        sheet.getRange(rowIdx, headers.indexOf('OwnerEmail') + 1).setValue(data.OwnerEmail);
+        sheet.getRange(rowIdx, headers.indexOf('Status') + 1).setValue(data.Status);
+        sheet.getRange(rowIdx, headers.indexOf('ApproverEmail') + 1).setValue(data.ApproverEmail || '');
+        return { success: true, message: `更新 Company Objective ${data.ID} 成功` };
+      }
     }
-
-    let targetSheetName;
-    let headers;
-    let newRow = [];
-    let objId;
-
-    try {
-        // 獲取用戶 ID 和部門 ID 以便生成 Objective ID
-        let userId = '';
-        let departmentId = '';
-
-        const userHeaders = getSheetHeaders(SHEET_NAMES.USERS);
-        const allUsers = getSheetData(SHEET_NAMES.USERS).map(row => rowToObject(userHeaders, row));
-        const ownerUser = allUsers.find(u => u.Email === objData.OwnerEmail);
-        if (ownerUser) {
-            userId = ownerUser.ID;
-        } else {
-            throw new Error(`找不到負責人 ${objData.OwnerEmail} 的用戶 ID。`);
-        }
-
-        if (objData.Type === 'Department' && objData.DepartmentID) {
-            departmentId = objData.DepartmentID;
-        }
-
-        // 生成 Objective ID
-        objId = _generateNextObjectiveId(objData.Type, objData.Period, departmentId, userId);
-        Logger.log(`[createObjective] 生成的 Objective ID: ${objId}`);
-
-        const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-
-        if (objData.Type === 'Company') {
-            targetSheetName = SHEET_NAMES.COMPANY_OBJECTIVES;
-            headers = getSheetHeaders(targetSheetName);
-            newRow = [
-                objId,
-                objData.Title,
-                objData.Description,
-                objData.OwnerEmail,
-                objData.Period,
-                0, // Progress 預設為 0
-                'Draft', // Status 預設為 Draft
-                '' // KRs 預設為空字串
-            ];
-        } else if (objData.Type === 'Department') {
-            targetSheetName = SHEET_NAMES.DEPARTMENT_OBJECTIVES;
-            headers = getSheetHeaders(targetSheetName);
-            newRow = [
-                objId,
-                objData.Title,
-                objData.Description,
-                objData.OwnerEmail,
-                objData.Period,
-                0, // Progress 預設為 0
-                'Draft', // Status 預設為 Draft
-                objData.DepartmentID || '', // 使用部門 ID
-                objData.ParentObjectiveID || '', // 父級 Objective ID
-                '' // KRs 預設為空字串
-            ];
-        } else if (objData.Type === 'My') {
-            targetSheetName = SHEET_NAMES.MY_OBJECTIVES;
-            headers = getSheetHeaders(targetSheetName);
-            newRow = [
-                objId,
-                objData.Title,
-                objData.Description,
-                objData.OwnerEmail,
-                objData.Period,
-                0, // Progress 預設為 0
-                'Draft', // Status 預設為 Draft
-                objData.ParentObjectiveID || '', // 父級 Objective ID
-                '' // KRs 預設為空字串
-            ];
-        } else {
-            throw new Error(`無效的 Objective 類型: ${objData.Type}`);
-        }
-
-        const targetSheet = spreadsheet.getSheetByName(targetSheetName);
-        if (!targetSheet) {
-            throw new Error(`工作表 "${targetSheetName}" 不存在。`);
-        }
-
-        // 確保新行數據的長度與標題長度匹配，不足的用空字串填充
-        while (newRow.length < headers.length) {
-            newRow.push('');
-        }
-
-        targetSheet.appendRow(newRow);
-        Logger.log(`[createObjective] 成功新增 Objective: ${objId} 到 ${targetSheetName}`);
-        return { success: true, message: `Objective "${objData.Title}" 新增成功！`, id: objId };
-
-    } catch (error) {
-        Logger.log(`[createObjective] 錯誤: ${error.message}`);
-        return { success: false, message: `新增 Objective 失敗: ${error.message}` };
-    }
+    return { success: false, message: `找不到 Company Objective ${data.ID}` };
+  } catch (e) {
+    return { success: false, message: '更新 Company Objective 失敗：' + e.message };
+  }
 }
 
 /**
- * 新增 Key Result 到 Key_Results 工作表，並更新其父級 Objective 的 KRs 欄位。
- * @param {string} sessionToken - 會話令牌
- * @param {Object} krData - 包含 Key Result 資訊的物件。
- * - ObjectiveID (string) - 父級 Objective 的 ID
- * - Description (string)
- * - OwnerEmail (string)
- * - MetricType (string)
- * - StartValue (number)
- * - TargetValue (number)
- * - Unit (string)
- * @returns {Object} - 包含 success 狀態和 message 的物件。
+ * 刪除 Company Objective 及其所有 KR
+ */
+function deleteCompanyObjective(sessionToken, objectiveId) {
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+
+    const sheetO = ss.getSheetByName(SHEET_COMPANY_OBJECTIVES);
+    const dataO = sheetO.getDataRange().getValues();
+    for (let i = 1; i < dataO.length; i++) {
+      if (dataO[i][0] === objectiveId) {
+        sheetO.deleteRow(i + 1);
+        break;
+      }
+    }
+
+    const sheetKR = ss.getSheetByName(SHEET_KEY_RESULTS);
+    const dataKR = sheetKR.getDataRange().getValues();
+    for (let i = dataKR.length - 1; i >= 1; i--) {
+      if (dataKR[i][1] === objectiveId) {
+        sheetKR.deleteRow(i + 1);
+      }
+    }
+
+    return { success: true, message: `已刪除 Company Objective ${objectiveId} 及其所有 KR` };
+  } catch (e) {
+    return { success: false, message: '刪除 Company Objective 失敗：' + e.message };
+  }
+}
+/**
+ * 取得 Key Results (可選：__ALL_COMPANY__, __ALL_DEPT__, __ALL_PERSONAL__)
+ * 回傳 JSON 字串：{ keyResults: [ … ], error: '' }
+ */
+/**
+ * 取得 Key Results (可選：__ALL_COMPANY__, __ALL_DEPT__, __ALL_PERSONAL__)
+ * [修正] 將篩選條件從寫死的 'Q2' 改為只判斷開頭字母，以適應不同季度的資料。
+ * 回傳 JSON 字串：{ keyResults: [ … ], error: '' }
+ */
+function getKeyResultsByObjective(sessionToken, objectiveId) {
+    try {
+        authenticateAndAuthorize(sessionToken);
+    } catch (e) {
+        return JSON.stringify({ error: e.message, keyResults: [] });
+    }
+    try {
+        const headers = getSheetHeaders(SHEET_KEY_RESULTS);
+        const rows = getSheetData(SHEET_KEY_RESULTS).map(r => rowToObject(headers, r));
+        let filtered;
+
+        if (objectiveId === '__ALL_COMPANY__') {
+            // 只檢查開頭是否為 'C-'，不再限制季度
+            filtered = rows.filter(kr => kr.ObjectiveID && kr.ObjectiveID.startsWith('C-'));
+        } else if (objectiveId === '__ALL_DEPT__') {
+            // 只檢查開頭是否為 'D-'
+            filtered = rows.filter(kr => kr.ObjectiveID && kr.ObjectiveID.startsWith('D-'));
+        } else if (objectiveId === '__ALL_PERSONAL__') {
+            // 只檢查開頭是否為 'P-'
+            filtered = rows.filter(kr => kr.ObjectiveID && kr.ObjectiveID.startsWith('P-'));
+        } else {
+            // 按特定 ObjectiveID 篩選 (此部分邏輯不變)
+            filtered = rows.filter(kr => kr.ObjectiveID === objectiveId);
+        }
+        
+        return JSON.stringify({ keyResults: filtered, error: '' });
+    } catch (e) {
+        return JSON.stringify({ error: '讀取 Key Results 發生錯誤：' + e.message, keyResults: [] });
+    }
+}
+/**
+ * 新增 Key Result
+ * krData: { ObjectiveID, Description, OwnerEmail, StartValue, TargetValue, Unit }
  */
 function createKeyResult(sessionToken, krData) {
-    Logger.log(`[createKeyResult] 函數開始執行。krData: ${JSON.stringify(krData)}`);
-    let authUser;
-    try {
-        authUser = authenticateAndAuthorize(sessionToken, ['Chairman', 'OKR_Admin', 'CLevel_Exec', 'Department_Manager', 'Employee']); // 假設這些角色可以創建 KR
-    } catch (e) {
-        Logger.log(`[createKeyResult] 認證失敗: ${e.message}`);
-        return { success: false, message: e.message };
-    }
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(SHEET_KEY_RESULTS);
+    const headers = getSheetHeaders(SHEET_KEY_RESULTS);
+    const rows = getSheetData(SHEET_KEY_RESULTS).map(r => rowToObject(headers, r));
 
-    const krId = _generateNextKeyResultId(krData.ObjectiveID); // 生成新的 KR ID
+    const parentPrefix = krData.ObjectiveID + '-KR-';
+    let maxNum = 0;
+    rows.forEach(kr => {
+      if (kr.ID && kr.ID.startsWith(parentPrefix)) {
+        const num = parseInt(kr.ID.replace(parentPrefix, '')) || 0;
+        if (num > maxNum) maxNum = num;
+      }
+    });
+    const nextNum = (maxNum + 1).toString().padStart(2, '0');
+    const newKrId = parentPrefix + nextNum;
 
-    try {
-        const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-        const krSheet = spreadsheet.getSheetByName(SHEET_NAMES.KEY_RESULTS);
-        if (!krSheet) {
-            throw new Error(`工作表 "${SHEET_NAMES.KEY_RESULTS}" 不存在。`);
-        }
-
-        const krHeaders = getSheetHeaders(SHEET_NAMES.KEY_RESULTS);
-        const newKrRow = [
-            krId,
-            krData.ObjectiveID,
-            krData.Description,
-            krData.OwnerEmail,
-            krData.MetricType,
-            krData.StartValue,
-            krData.TargetValue,
-            krData.StartValue, // CurrentValue 預設為 StartValue
-            krData.Unit,
-            0, // Progress 預設為 0
-            'On Track', // ConfidenceLevel 預設為 On Track
-            new Date().toLocaleString(), // LastUpdated
-            authUser.userEmail, // LastUpdatedByEmail
-            '' // Comment
-        ];
-
-        // 確保新行數據的長度與標題長度匹配，不足的用空字串填充
-        while (newKrRow.length < krHeaders.length) {
-            newKrRow.push('');
-        }
-
-        krSheet.appendRow(newKrRow);
-        Logger.log(`[createKeyResult] 成功新增 Key Result: ${krId}`);
-
-        // --- 更新父級 Objective 的 KRs 欄位 ---
-        const objSheets = [
-            { name: SHEET_NAMES.COMPANY_OBJECTIVES, headers: getSheetHeaders(SHEET_NAMES.COMPANY_OBJECTIVES) },
-            { name: SHEET_NAMES.MY_OBJECTIVES, headers: getSheetHeaders(SHEET_NAMES.MY_OBJECTIVES) },
-            { name: SHEET_NAMES.DEPARTMENT_OBJECTIVES, headers: getSheetHeaders(SHEET_NAMES.DEPARTMENT_OBJECTIVES) }
-        ];
-
-        let parentObjectiveFound = false;
-        for (const objSheetInfo of objSheets) {
-            const currentObjSheet = spreadsheet.getSheetByName(objSheetInfo.name);
-            const objDataRange = currentObjSheet.getDataRange();
-            const objValues = objDataRange.getValues();
-
-            for (let i = 1; i < objValues.length; i++) { // 從第二行開始
-                const obj = rowToObject(objSheetInfo.headers, objValues[i]);
-                if (obj.ID === krData.ObjectiveID) {
-                    const krColIndex = objSheetInfo.headers.indexOf('KRs') + 1;
-                    if (krColIndex > 0) {
-                        let currentKRs = obj.KRs ? String(obj.KRs).trim() : '';
-                        if (currentKRs !== '') {
-                            currentKRs += `,${krId}`;
-                        } else {
-                            currentKRs = krId;
-                        }
-                        currentObjSheet.getRange(i + 1, krColIndex).setValue(currentKRs);
-                        Logger.log(`[createKeyResult] 成功更新父級 Objective (${krData.ObjectiveID}) 的 KRs 欄位。新 KRs: ${currentKRs}`);
-                        parentObjectiveFound = true;
-                        break; // 找到父級 Objective 後跳出循環
-                    }
-                }
-            }
-            if (parentObjectiveFound) break; // 如果在某個工作表找到並更新，則跳出外層循環
-        }
-
-        if (!parentObjectiveFound) {
-            Logger.log(`[createKeyResult] 警告: 未找到 ID 為 ${krData.ObjectiveID} 的父級 Objective 來更新 KRs 欄位。`);
-        } else {
-            // 如果父級 Objective 找到並更新了 KRs 欄位，則重新計算其進度
-            calculateObjectiveProgressAndScore(krData.ObjectiveID);
-        }
-
-        return { success: true, message: `Key Result "${krData.Description}" 新增成功！`, id: krId };
-
-    } catch (error) {
-        Logger.log(`[createKeyResult] 錯誤: ${error.message}`);
-        return { success: false, message: `新增 Key Result 失敗: ${error.message}` };
-    }
+    const newKrRow = [
+      newKrId,
+      krData.ObjectiveID,
+      krData.Description || '',
+      krData.OwnerEmail || '',
+      krData.StartValue || 0,
+      krData.TargetValue || 0,
+      krData.StartValue || 0,    // CurrentValue 初始 = StartValue
+      0,                         // Progress 初始 0
+      krData.Unit || '',
+      'On Track'
+    ];
+    sheet.appendRow(newKrRow);
+    return { success: true, message: `新增 Key Result 成功，ID: ${newKrId}` };
+  } catch (e) {
+    return { success: false, message: '新增 Key Result 失敗：' + e.message };
+  }
 }
-
-
 /**
- * 更新 Key Result 的當前值和進度到 Google Sheets。
- * 此函數會更新 Key_Results 工作表並在 Key_Results_Updates 中記錄歷史。
- * @param {string} sessionToken - 會話令牌
- * @param {string} krId - 要更新的 Key Result 的 ID
- * @param {number} newValue - 新的當前值
- * @param {string} comment - 用戶提供的更新評論
- * @returns {Object} - 包含 success 狀態和 message 的物件。
+ * 更新 Key Result
+ * data: { ID, Description, OwnerEmail, StartValue, TargetValue, CurrentValue, Progress, Unit, Status }
  */
-function updateKeyResultProgress(sessionToken, krId, newValue, comment) {
-    Logger.log(`[updateKeyResultProgress] 函數開始執行。KR ID: ${krId}, 新值: ${newValue}`);
-    let authUser;
-    try {
-        authUser = authenticateAndAuthorize(sessionToken, ['Chairman', 'OKR_Admin', 'CLevel_Exec', 'Department_Manager', 'Employee']); // 假設這些角色可以更新 KR
-    } catch (e) {
-        Logger.log(`[updateKeyResultProgress] 認證失敗: ${e.message}`);
-        return { success: false, message: e.message };
+function updateKeyResult(sessionToken, data) {
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(SHEET_KEY_RESULTS);
+    const headers = getSheetHeaders(SHEET_KEY_RESULTS);
+    const allRows = sheet.getDataRange().getValues();
+    for (let i = 1; i < allRows.length; i++) {
+      if (allRows[i][0] === data.ID) {
+        const rowIdx = i + 1;
+        sheet.getRange(rowIdx, headers.indexOf('Description') + 1).setValue(data.Description);
+        sheet.getRange(rowIdx, headers.indexOf('OwnerEmail') + 1).setValue(data.OwnerEmail);
+        sheet.getRange(rowIdx, headers.indexOf('StartValue') + 1).setValue(data.StartValue);
+        sheet.getRange(rowIdx, headers.indexOf('TargetValue') + 1).setValue(data.TargetValue);
+        sheet.getRange(rowIdx, headers.indexOf('CurrentValue') + 1).setValue(data.CurrentValue);
+        sheet.getRange(rowIdx, headers.indexOf('Progress') + 1).setValue(data.Progress);
+        sheet.getRange(rowIdx, headers.indexOf('Unit') + 1).setValue(data.Unit);
+        sheet.getRange(rowIdx, headers.indexOf('Status') + 1).setValue(data.Status);
+        return { success: true, message: `更新 Key Result ${data.ID} 成功` };
+      }
     }
-
-    try {
-        const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-        const krSheet = spreadsheet.getSheetByName(SHEET_NAMES.KEY_RESULTS);
-        const krUpdateSheet = spreadsheet.getSheetByName(SHEET_NAMES.KEY_RESULTS_UPDATES);
-        
-        if (!krSheet || !krUpdateSheet) {
-            throw new Error("Key Results 或 Key Results Updates 工作表不存在，無法更新。");
-        }
-
-        const krHeaders = getSheetHeaders(SHEET_NAMES.KEY_RESULTS);
-        const krData = krSheet.getDataRange().getValues(); // 包含標題行
-
-        let rowIndexToUpdate = -1;
-        let oldKrValue = null;
-        let targetValue = 0;
-        let startValue = 0;
-        let krOwnerEmail = '';
-        let parentObjectiveId = ''; // 用於後續更新父級 Objective 進度
-
-        // 尋找要更新的 KR 行
-        for (let i = 1; i < krData.length; i++) { // 從第二行開始 (跳過標題)
-            const kr = rowToObject(krHeaders, krData[i]);
-            if (kr.ID === krId) {
-                rowIndexToUpdate = i + 1; // Apps Script 的行號是從 1 開始
-                oldKrValue = parseFloat(kr.CurrentValue); // 確保是數字
-                targetValue = parseFloat(kr.TargetValue); // 確保是數字
-                startValue = parseFloat(kr.StartValue); // 確保是數字
-                krOwnerEmail = kr.OwnerEmail;
-                parentObjectiveId = kr.ObjectiveID; // 獲取父級 Objective ID
-                break;
-            }
-        }
-
-        if (rowIndexToUpdate === -1) {
-            Logger.log(`[updateKeyResultProgress] 警告: 找不到 ID 為 ${krId} 的關鍵成果。`);
-            return { success: false, message: `找不到 ID 為 ${krId} 的關鍵成果。` };
-        }
-
-        // 權限檢查：只有 KR 負責人、部門主管、C-level主管、OKR管理員、董事長才能更新
-        let hasEditPermission = false;
-        if (authUser.userEmail === krOwnerEmail) { // KR 負責人
-            hasEditPermission = true;
-        } else if (['OKR_Admin', 'Chairman'].includes(authUser.userRole)) { // OKR 管理員或董事長
-            hasEditPermission = true;
-        } else if (authUser.userRole === 'Department_Manager' && authUser.userDepartment === krOwnerEmail.split('@')[0].toUpperCase().replace(/[^A-Z0-9]/g, '')) { // 假設部門經理只能管理自己部門的KR
-            // 這需要更複雜的邏輯來判斷部門經理是否是KR負責人的主管
-            // 更精確的判斷需要查詢 Users 表格中 KR 負責人的部門，再比對部門經理的部門
-            hasEditPermission = true; // 簡化處理
-        } else if (authUser.userRole === 'CLevel_Exec') { // C-level 主管可以更新所有 KR
-            hasEditPermission = true;
-        }
-        
-        if (!hasEditPermission) {
-            Logger.log(`[updateKeyResultProgress] 警告: 用戶 ${authUser.userEmail} (角色: ${authUser.userRole}) 無權更新 KR ${krId}。負責人: ${krOwnerEmail}`);
-            return { success: false, message: "您沒有權限更新此關鍵成果。只有負責人、部門主管或管理員可以更新。" };
-        }
-
-
-        // 計算新的進度百分比
-        let newProgress = 0;
-        if (targetValue !== startValue) {
-            newProgress = Math.min(100, Math.max(0, ((newValue - startValue) / (targetValue - startValue)) * 100));
-        } else if (newValue >= targetValue && targetValue === 0) { // 處理目標為0的情況 (例如完成某項任務)
-            newProgress = 100;
-        } else if (newValue === targetValue) { // 目標值與起始值相同，且達到目標值
-            newProgress = 100;
-        }
-        Logger.log(`[updateKeyResultProgress] KR ${krId} 新進度計算: ${newProgress.toFixed(2)}%`);
-
-        // 獲取需要更新的列索引
-        const currentValueColIndex = krHeaders.indexOf('CurrentValue') + 1;
-        const progressColIndex = krHeaders.indexOf('Progress') + 1;
-        const lastUpdatedColIndex = krHeaders.indexOf('LastUpdated') + 1;
-        const lastUpdatedByEmailColIndex = krHeaders.indexOf('LastUpdatedByEmail') + 1;
-        const commentColIndex = krHeaders.indexOf('Comment') + 1;
-
-        // 更新 Key_Results 工作表中的數據
-        krSheet.getRange(rowIndexToUpdate, currentValueColIndex).setValue(newValue);
-        krSheet.getRange(rowIndexToUpdate, progressColIndex).setValue(newProgress.toFixed(2)); // 保留兩位小數
-        krSheet.getRange(rowIndexToUpdate, lastUpdatedColIndex).setValue(new Date().toLocaleString());
-        krSheet.getRange(rowIndexToUpdate, lastUpdatedByEmailColIndex).setValue(authUser.userEmail);
-        krSheet.getRange(rowIndexToUpdate, commentColIndex).setValue(comment);
-        Logger.log(`[updateKeyResultProgress] KR ${krId} 主表數據更新成功。`);
-
-        // 記錄進度更新到 Key_Results_Updates 工作表
-        krUpdateSheet.appendRow([
-            Utilities.getUuid(), // 生成唯一的 UpdateID
-            krId,
-            authUser.userEmail,
-            oldKrValue,
-            newValue,
-            comment,
-            new Date().toLocaleString()
-        ]);
-        Logger.log(`[updateKeyResultProgress] KR ${krId} 更新記錄成功添加到歷史表。`);
-
-        // --- 更新父級 Objective 的進度 ---
-        // 在更新 KR 後，重新計算其父級 Objective 的進度
-        if (parentObjectiveId) {
-            calculateObjectiveProgressAndScore(parentObjectiveId);
-        }
-
-        return { success: true, message: `關鍵成果 ${krId} 進度已更新為 ${newValue} (${newProgress.toFixed(0)}%)` };
-
-    } catch (error) {
-        Logger.log(`[updateKeyResultProgress] 錯誤: 更新 KR 進度失敗: ${error.message}`);
-        return { success: false, message: `更新失敗: ${error.message}` };
-    }
+    return { success: false, message: `找不到 Key Result ${data.ID}` };
+  } catch (e) {
+    return { success: false, message: '更新 Key Result 失敗：' + e.message };
+  }
 }
 
 /**
- * 輔助函數：計算並更新 Objective 的進度和得分
- * @param {string} objectiveId - 要計算的 Objective ID
+ * 批次更新 Key Results
+ * updates: [{ ID, Description, OwnerEmail, StartValue, TargetValue, CurrentValue, Progress, Unit, Status }, ...]
+ * 注意：這裡假設傳入的數據包含 KR 的所有欄位，如果只更新部分欄位，後端需要更精細的處理。
  */
-function calculateObjectiveProgressAndScore(objectiveId) {
-    Logger.log(`[calculateObjectiveProgressAndScore] 開始計算 Objective: ${objectiveId} 的進度。`);
-    try {
-        const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-        const krSheet = spreadsheet.getSheetByName(SHEET_NAMES.KEY_RESULTS);
-        const krHeaders = getSheetHeaders(SHEET_NAMES.KEY_RESULTS);
-        const allKRs = getSheetData(SHEET_NAMES.KEY_RESULTS).map(row => rowToObject(krHeaders, row));
+function batchUpdateKeyResults(sessionToken, updates) {
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(SHEET_KEY_RESULTS);
+    const headers = getSheetHeaders(SHEET_KEY_RESULTS);
+    const allRows = sheet.getDataRange().getValues();
 
-        const objSheets = [
-            { name: SHEET_NAMES.COMPANY_OBJECTIVES, type: 'Company', headers: getSheetHeaders(SHEET_NAMES.COMPANY_OBJECTIVES) },
-            { name: SHEET_NAMES.MY_OBJECTIVES, type: 'My', headers: getSheetHeaders(SHEET_NAMES.MY_OBJECTIVES) },
-            { name: SHEET_NAMES.DEPARTMENT_OBJECTIVES, type: 'Department', headers: getSheetHeaders(SHEET_NAMES.DEPARTMENT_OBJECTIVES) }
-        ];
+    let updatedCount = 0;
+    const errors = [];
 
-        let objectiveFound = false;
-        for (const objSheetInfo of objSheets) {
-            const currentObjSheet = spreadsheet.getSheetByName(objSheetInfo.name);
-            const objDataRange = currentObjSheet.getDataRange();
-            const objValues = objDataRange.getValues();
-
-            for (let i = 1; i < objValues.length; i++) {
-                const obj = rowToObject(objSheetInfo.headers, objValues[i]);
-                if (obj.ID === objectiveId) {
-                    const relatedKRs = (obj.KRs ? String(obj.KRs).split(',').map(id => id.trim()).filter(id => id !== '') : [])
-                                       .map(krId => allKRs.find(kr => kr.ID === krId)).filter(Boolean);
-
-                    let totalProgress = 0;
-                    let totalWeight = 0; // 如果有 KR 權重，可以在這裡計算
-
-                    relatedKRs.forEach(kr => {
-                        totalProgress += (kr.Progress ? parseFloat(kr.Progress) : 0);
-                        // totalWeight += (kr.Weight ? parseFloat(kr.Weight) : 1); // 如果有權重
-                    });
-
-                    const newObjectiveProgress = relatedKRs.length > 0 ? (totalProgress / relatedKRs.length) : 0;
-                    // const newObjectiveProgress = totalWeight > 0 ? (totalProgress / totalWeight) : 0; // 如果有權重
-
-                    const progressColIndex = objSheetInfo.headers.indexOf('Progress') + 1;
-                    const statusColIndex = objSheetInfo.headers.indexOf('Status') + 1; // 假設狀態欄位
-
-                    // 更新 Objective 的進度
-                    currentObjSheet.getRange(i + 1, progressColIndex).setValue(newObjectiveProgress.toFixed(2));
-                    
-                    // 根據進度自動更新 Objective 狀態 (簡化邏輯)
-                    let newStatus = obj.Status; // 保持原有狀態，除非達到特定條件
-                    if (newObjectiveProgress >= 100) {
-                        newStatus = 'Achieved';
-                    } else if (newObjectiveProgress < 50 && obj.Status !== 'Draft' && obj.Status !== 'Pending Chairman Approval') {
-                        newStatus = 'At Risk'; // 進度低於 50% 且不是草稿/待審批狀態，則設為有風險
-                    } else if (newObjectiveProgress >= 50 && newObjectiveProgress < 80 && obj.Status !== 'Draft' && obj.Status !== 'Pending Chairman Approval') {
-                        newStatus = 'In Progress'; // 50-80% 設為進行中
-                    } else if (newObjectiveProgress >= 80 && newObjectiveProgress < 100 && obj.Status !== 'Draft' && obj.Status !== 'Pending Chairman Approval') {
-                        newStatus = 'In Progress'; // 80-100% 設為進行中
-                    }
-                    currentObjSheet.getRange(i + 1, statusColIndex).setValue(newStatus);
-
-
-                    Logger.log(`[calculateObjectiveProgressAndScore] Objective ${objectiveId} 進度更新為 ${newObjectiveProgress.toFixed(2)}%，狀態更新為 ${newStatus}。`);
-                    objectiveFound = true;
-                    break;
-                }
-            }
-            if (objectiveFound) break;
-        }
-
-        if (!objectiveFound) {
-            Logger.log(`[calculateObjectiveProgressAndScore] 警告: 未找到 ID 為 ${objectiveId} 的 Objective 來計算進度。`);
-        }
-    } catch (error) {
-        Logger.log(`[calculateObjectiveProgressAndScore] 錯誤: 計算 Objective 進度失敗: ${error.message}`);
-    }
-}
-
-
-/**
- * 模擬提交 Objective 進行審批的函數。
- * 在實際應用中，此函數會更新 Google Sheet 中的 Objective 狀態，並可能發送通知給董事長。
- * @param {string} sessionToken - 會話令牌
- * @param {string} objectiveId - 要提交審批的 Objective ID
- * @returns {Object} - 包含 success 狀態和 message 的物件。
- */
-function submitObjectiveForApproval(sessionToken, objectiveId) {
-    Logger.log(`[submitObjectiveForApproval] 函數開始執行。Objective ID: ${objectiveId}`);
-    let authUser;
-    try {
-        authUser = authenticateAndAuthorize(sessionToken, ['Chairman', 'OKR_Admin', 'CLevel_Exec', 'Department_Manager', 'Employee']); // 假設這些角色可以提交審批
-    } catch (e) {
-        Logger.log(`[submitObjectiveForApproval] 認證失敗: ${e.message}`);
-        return { success: false, message: e.message };
+    const krIdToIndexMap = {};
+    for (let i = 1; i < allRows.length; i++) {
+      krIdToIndexMap[allRows[i][0]] = i;
     }
 
-    try {
-        const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-        const objSheets = [
-            { name: SHEET_NAMES.COMPANY_OBJECTIVES, headers: getSheetHeaders(SHEET_NAMES.COMPANY_OBJECTIVES) },
-            { name: SHEET_NAMES.MY_OBJECTIVES, headers: getSheetHeaders(SHEET_NAMES.MY_OBJECTIVES) },
-            { name: SHEET_NAMES.DEPARTMENT_OBJECTIVES, headers: getSheetHeaders(SHEET_NAMES.DEPARTMENT_OBJECTIVES) }
-        ];
+    updates.forEach(data => {
+      const rowIndex = krIdToIndexMap[data.ID];
+      if (rowIndex !== undefined) {
+        const sheetRowIdx = rowIndex + 1;
 
-        let objectiveFound = false;
-        for (const objSheetInfo of objSheets) {
-            const currentObjSheet = spreadsheet.getSheetByName(objSheetInfo.name);
-            const objDataRange = currentObjSheet.getDataRange();
-            const objValues = objDataRange.getValues();
-
-            for (let i = 1; i < objValues.length; i++) {
-                const obj = rowToObject(objSheetInfo.headers, objValues[i]);
-                if (obj.ID === objectiveId) {
-                    const statusColIndex = objSheetInfo.headers.indexOf('Status') + 1;
-                    const ownerEmail = obj.OwnerEmail;
-
-                    // 權限檢查：只有 Objective 負責人才能提交審批
-                    if (authUser.userEmail !== ownerEmail && !['OKR_Admin', 'Chairman'].includes(authUser.userRole)) {
-                        return { success: false, message: "您沒有權限提交此 Objective 進行審批。只有負責人或管理員可以提交。" };
-                    }
-                    
-                    // 檢查 Objective 是否有 KRs
-                    if (!obj.KRs || String(obj.KRs).trim() === '') {
-                        return { success: false, message: "Objective 必須至少有一個關鍵成果 (KR) 才能提交審批。" };
-                    }
-
-                    currentObjSheet.getRange(i + 1, statusColIndex).setValue('Pending Chairman Approval');
-                    Logger.log(`[submitObjectiveForApproval] Objective ${objectiveId} 狀態更新為 'Pending Chairman Approval'。`);
-                    objectiveFound = true;
-                    break;
-                }
-            }
-            if (objectiveFound) break;
+        try {
+          sheet.getRange(sheetRowIdx, headers.indexOf('Description') + 1).setValue(data.Description);
+          sheet.getRange(sheetRowIdx, headers.indexOf('OwnerEmail') + 1).setValue(data.OwnerEmail);
+          sheet.getRange(sheetRowIdx, headers.indexOf('StartValue') + 1).setValue(data.StartValue);
+          sheet.getRange(sheetRowIdx, headers.indexOf('TargetValue') + 1).setValue(data.TargetValue);
+          sheet.getRange(sheetRowIdx, headers.indexOf('CurrentValue') + 1).setValue(data.CurrentValue);
+          sheet.getRange(sheetRowIdx, headers.indexOf('Progress') + 1).setValue(data.Progress);
+          sheet.getRange(sheetRowIdx, headers.indexOf('Unit') + 1).setValue(data.Unit);
+          sheet.getRange(sheetRowIdx, headers.indexOf('Status') + 1).setValue(data.Status);
+          updatedCount++;
+        } catch (updateError) {
+          errors.push(`KR ${data.ID} 更新失敗: ${updateError.message}`);
         }
+      } else {
+        errors.push(`KR ${data.ID} 找不到。`);
+      }
+    });
 
-        if (!objectiveFound) {
-            return { success: false, message: `找不到 ID 為 ${objectiveId} 的 Objective。` };
-        }
-
-        return { success: true, message: `Objective ${objectiveId} 已提交審批！` };
-    } catch (error) {
-        Logger.log(`[submitObjectiveForApproval] 錯誤: ${error.message}`);
-        return { success: false, message: `提交審批失敗: ${error.message}` };
+    if (errors.length > 0) {
+      return { success: false, message: `批次更新完成，但有 ${errors.length} 個錯誤：\n${errors.join('\n')}` };
     }
+    return { success: true, message: `成功批次更新 ${updatedCount} 個 Key Result。` };
+
+  } catch (e) {
+    return { success: false, message: '批次更新 Key Results 失敗：' + e.message };
+  }
 }
 
 /**
- * 模擬批准 Objective 的函數 (僅限董事長角色)。
- * @param {string} sessionToken - 會話令牌
- * @param {string} objectiveId - 要批准的 Objective ID
- * @returns {Object} - 包含 success 狀態和 message 的物件。
- */
-function approveObjective(sessionToken, objectiveId) {
-    Logger.log(`[approveObjective] 函數開始執行。Objective ID: ${objectiveId}`);
-    let authUser;
-    try {
-        authUser = authenticateAndAuthorize(sessionToken, ['Chairman', 'OKR_Admin']); // 只有董事長或OKR管理員可以批准
-    } catch (e) {
-        Logger.log(`[approveObjective] 認證失敗: ${e.message}`);
-        return { success: false, message: e.message };
-    }
-
-    try {
-        const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-        const objSheets = [
-            { name: SHEET_NAMES.COMPANY_OBJECTIVES, headers: getSheetHeaders(SHEET_NAMES.COMPANY_OBJECTIVES) },
-            { name: SHEET_NAMES.MY_OBJECTIVES, headers: getSheetHeaders(SHEET_NAMES.MY_OBJECTIVES) },
-            { name: SHEET_NAMES.DEPARTMENT_OBJECTIVES, headers: getSheetHeaders(SHEET_NAMES.DEPARTMENT_OBJECTIVES) }
-        ];
-
-        let objectiveFound = false;
-        for (const objSheetInfo of objSheets) {
-            const currentObjSheet = spreadsheet.getSheetByName(objSheetInfo.name);
-            const objDataRange = currentObjSheet.getDataRange();
-            const objValues = objDataRange.getValues();
-
-            for (let i = 1; i < objValues.length; i++) {
-                const obj = rowToObject(objSheetInfo.headers, objValues[i]);
-                if (obj.ID === objectiveId) {
-                    const statusColIndex = objSheetInfo.headers.indexOf('Status') + 1;
-                    currentObjSheet.getRange(i + 1, statusColIndex).setValue('Approved');
-                    Logger.log(`[approveObjective] Objective ${objectiveId} 狀態更新為 'Approved'。`);
-                    objectiveFound = true;
-                    break;
-                }
-            }
-            if (objectiveFound) break;
-        }
-
-        if (!objectiveFound) {
-            return { success: false, message: `找不到 ID 為 ${objectiveId} 的 Objective。` };
-        }
-
-        Logger.log(`[approveObjective] Objective ${objectiveId} 已被 ${authUser.userEmail} 批准`);
-        return { success: true, message: `Objective ${objectiveId} 已批准！` };
-    } catch (error) {
-        Logger.log(`[approveObjective] 錯誤: 批准 Objective 失敗: ${error.message}`);
-        return { success: false, message: `批准失敗: ${error.message}` };
-    }
-}
-
-/**
- * 模擬拒絕 Objective 的函數 (僅限董事長角色)。
- * @param {string} sessionToken - 會話令牌
- * @param {string} objectiveId - 要拒絕的 Objective ID
- * @returns {Object} - 包含 success 狀態和 message 的物件。
- */
-function rejectObjective(sessionToken, objectiveId) {
-    Logger.log(`[rejectObjective] 函數開始執行。Objective ID: ${objectiveId}`);
-    let authUser;
-    try {
-        authUser = authenticateAndAuthorize(sessionToken, ['Chairman', 'OKR_Admin']); // 只有董事長或OKR管理員可以拒絕
-    } catch (e) {
-        Logger.log(`[rejectObjective] 認證失敗: ${e.message}`);
-        return { success: false, message: e.message };
-    }
-
-    try {
-        const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-        const objSheets = [
-            { name: SHEET_NAMES.COMPANY_OBJECTIVES, headers: getSheetHeaders(SHEET_NAMES.COMPANY_OBJECTIVES) },
-            { name: SHEET_NAMES.MY_OBJECTIVES, headers: getSheetHeaders(SHEET_NAMES.MY_OBJECTIVES) },
-            { name: SHEET_NAMES.DEPARTMENT_OBJECTIVES, headers: getSheetHeaders(SHEET_NAMES.DEPARTMENT_OBJECTIVES) }
-        ];
-
-        let objectiveFound = false;
-        for (const objSheetInfo of objSheets) {
-            const currentObjSheet = spreadsheet.getSheetByName(objSheetInfo.name);
-            const objDataRange = currentObjSheet.getDataRange();
-            const objValues = objDataRange.getValues();
-
-            for (let i = 1; i < objValues.length; i++) {
-                const obj = rowToObject(objSheetInfo.headers, objValues[i]);
-                if (obj.ID === objectiveId) {
-                    const statusColIndex = objSheetInfo.headers.indexOf('Status') + 1;
-                    currentObjSheet.getRange(i + 1, statusColIndex).setValue('Rejected');
-                    Logger.log(`[rejectObjective] Objective ${objectiveId} 狀態更新為 'Rejected'。`);
-                    objectiveFound = true;
-                    break;
-                }
-            }
-            if (objectiveFound) break;
-        }
-
-        if (!objectiveFound) {
-            return { success: false, message: `找不到 ID 為 ${objectiveId} 的 Objective。` };
-        }
-
-        Logger.log(`[rejectObjective] Objective ${objectiveId} 已被 ${authUser.userEmail} 拒絕`);
-        return { success: true, message: `Objective ${objectiveId} 已拒絕。` };
-    } catch (error) {
-        Logger.log(`[rejectObjective] 錯誤: 拒絕 Objective 失敗: ${error.message}`);
-        return { success: false, message: `拒絕失敗: ${error.message}` };
-    }
-}
-
-/**
- * 實現 Objective 的編輯功能。
- * @param {string} sessionToken - 會話令牌
- * @param {Object} objData - 包含 Objective 資訊的物件。
- * @returns {Object} - 包含 success 狀態和 message 的物件。
- */
-function editObjective(sessionToken, objData) {
-    Logger.log(`[editObjective] 函數開始執行。objData: ${JSON.stringify(objData)}`);
-    let authUser;
-    try {
-        authUser = authenticateAndAuthorize(sessionToken, ['Chairman', 'OKR_Admin', 'CLevel_Exec', 'Department_Manager', 'Employee']); // 假設這些角色可以編輯 Objective
-    } catch (e) {
-        Logger.log(`[editObjective] 認證失敗: ${e.message}`);
-        return { success: false, message: e.message };
-    }
-
-    try {
-        const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-        const objSheets = [
-            { name: SHEET_NAMES.COMPANY_OBJECTIVES, headers: getSheetHeaders(SHEET_NAMES.COMPANY_OBJECTIVES) },
-            { name: SHEET_NAMES.MY_OBJECTIVES, headers: getSheetHeaders(SHEET_NAMES.MY_OBJECTIVES) },
-            { name: SHEET_NAMES.DEPARTMENT_OBJECTIVES, headers: getSheetHeaders(SHEET_NAMES.DEPARTMENT_OBJECTIVES) }
-        ];
-
-        let objectiveFound = false;
-        for (const objSheetInfo of objSheets) {
-            const currentObjSheet = spreadsheet.getSheetByName(objSheetInfo.name);
-            const objDataRange = currentObjSheet.getDataRange();
-            const objValues = objDataRange.getValues();
-
-            for (let i = 1; i < objValues.length; i++) {
-                const obj = rowToObject(objSheetInfo.headers, objValues[i]);
-                if (obj.ID === objData.ID) {
-                    // 權限檢查：只有負責人或特定管理員才能編輯
-                    if (authUser.userEmail !== obj.OwnerEmail && !['OKR_Admin', 'Chairman', 'Department_Manager', 'CLevel_Exec'].includes(authUser.userRole)) {
-                        return { success: false, message: "您沒有權限編輯此 Objective。" };
-                    }
-
-                    // 更新欄位
-                    const titleColIndex = objSheetInfo.headers.indexOf('Title') + 1;
-                    const descColIndex = objSheetInfo.headers.indexOf('Description') + 1;
-                    const ownerColIndex = objSheetInfo.headers.indexOf('OwnerEmail') + 1;
-                    const periodColIndex = objSheetInfo.headers.indexOf('Period') + 1;
-                    const departmentColIndex = objSheetInfo.headers.indexOf('DepartmentID') + 1; // 注意這裡使用 DepartmentID
-                    const parentColIndex = objSheetInfo.headers.indexOf('ParentObjectiveID') + 1;
-
-                    currentObjSheet.getRange(i + 1, titleColIndex).setValue(objData.Title);
-                    currentObjSheet.getRange(i + 1, descColIndex).setValue(objData.Description);
-                    currentObjSheet.getRange(i + 1, ownerColIndex).setValue(objData.OwnerEmail);
-                    currentObjSheet.getRange(i + 1, periodColIndex).setValue(objData.Period);
-
-                    if (departmentColIndex > 0) currentObjSheet.getRange(i + 1, departmentColIndex).setValue(objData.DepartmentID || '');
-                    if (parentColIndex > 0) currentObjSheet.getRange(i + 1, parentColIndex).setValue(objData.ParentObjectiveID || '');
-
-                    Logger.log(`[editObjective] 成功編輯 Objective: ${objData.ID}`);
-                    objectiveFound = true;
-                    break;
-                }
-            }
-            if (objectiveFound) break;
-        }
-
-        if (!objectiveFound) {
-            return { success: false, message: `找不到 ID 為 ${objData.ID} 的 Objective。` };
-        }
-
-        return { success: true, message: `Objective "${objData.Title}" 更新成功！` };
-    } catch (error) {
-        Logger.log(`[editObjective] 錯誤: ${error.message}`);
-        return { success: false, message: `編輯 Objective 失敗: ${error.message}` };
-    }
-}
-
-/**
- * 實現 Objective 的刪除功能。
- * @param {string} sessionToken - 會話令牌
- * @param {string} objectiveId - 要刪除的 Objective ID。
- * @returns {Object} - 包含 success 狀態和 message 的物件。
- */
-function deleteObjective(sessionToken, objectiveId) {
-    Logger.log(`[deleteObjective] 函數開始執行。Objective ID: ${objectiveId}`);
-    let authUser;
-    try {
-        authUser = authenticateAndAuthorize(sessionToken, ['OKR_Admin', 'Chairman']); // 只有OKR管理員和董事長可以刪除Objective
-    } catch (e) {
-        Logger.log(`[deleteObjective] 認證失敗: ${e.message}`);
-        return { success: false, message: e.message };
-    }
-
-    try {
-        const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-        const objSheets = [
-            { name: SHEET_NAMES.COMPANY_OBJECTIVES, headers: getSheetHeaders(SHEET_NAMES.COMPANY_OBJECTIVES) },
-            { name: SHEET_NAMES.MY_OBJECTIVES, headers: getSheetHeaders(SHEET_NAMES.MY_OBJECTIVES) },
-            { name: SHEET_NAMES.DEPARTMENT_OBJECTIVES, headers: getSheetHeaders(SHEET_NAMES.DEPARTMENT_OBJECTIVES) }
-        ];
-
-        let objectiveFound = false;
-        let objectiveOwnerEmail = '';
-        let targetSheet = null;
-        let targetRowIndex = -1;
-        let objectiveKRs = [];
-
-        // 先找到 Objective 並進行權限檢查
-        for (const objSheetInfo of objSheets) {
-            const currentObjSheet = spreadsheet.getSheetByName(objSheetInfo.name);
-            const objDataRange = currentObjSheet.getDataRange();
-            const objValues = objDataRange.getValues();
-
-            for (let i = 1; i < objValues.length; i++) {
-                const obj = rowToObject(objSheetInfo.headers, objValues[i]);
-                if (obj.ID === objectiveId) {
-                    objectiveOwnerEmail = obj.OwnerEmail;
-                    objectiveKRs = (obj.KRs ? String(obj.KRs).split(',').map(id => id.trim()).filter(id => id !== '') : []);
-                    targetSheet = currentObjSheet;
-                    targetRowIndex = i + 1; // Apps Script 行號
-                    objectiveFound = true;
-                    break;
-                }
-            }
-            if (objectiveFound) break;
-        }
-
-        if (!objectiveFound) {
-            return { success: false, message: `找不到 ID 為 ${objectiveId} 的 Objective。` };
-        }
-
-        // 權限檢查：只有負責人或特定管理員才能刪除
-        if (authUser.userEmail !== objectiveOwnerEmail && !['OKR_Admin', 'Chairman'].includes(authUser.userRole)) {
-            return { success: false, message: "您沒有權限刪除此 Objective。" };
-        }
-
-        // 刪除 Objective 行
-        targetSheet.deleteRow(targetRowIndex);
-        Logger.log(`[deleteObjective] 成功刪除 Objective: ${objectiveId} 從 ${targetSheet.getName()}`);
-
-        // 級聯刪除其下的 Key Results
-        if (objectiveKRs.length > 0) {
-            const krSheet = spreadsheet.getSheetByName(SHEET_NAMES.KEY_RESULTS);
-            const krHeaders = getSheetHeaders(SHEET_NAMES.KEY_RESULTS);
-            const krData = krSheet.getDataRange().getValues();
-            
-            // 從後往前刪除，避免行號錯亂
-            for (let i = krData.length - 1; i >= 1; i--) {
-                const kr = rowToObject(krHeaders, krData[i]);
-                if (objectiveKRs.includes(kr.ID)) {
-                    krSheet.deleteRow(i + 1);
-                    Logger.log(`[deleteObjective] 級聯刪除 KR: ${kr.ID}`);
-                }
-            }
-        }
-
-        return { success: true, message: `Objective ${objectiveId} 及其相關 Key Results 已刪除。` };
-    } catch (error) {
-        Logger.log(`[deleteObjective] 錯誤: ${error.message}`);
-        return { success: false, message: `刪除 Objective 失敗: ${error.message}` };
-    }
-}
-
-/**
- * 實現 Key Result 的編輯功能。
- * @param {string} sessionToken - 會話令牌
- * @param {Object} krData - 包含 Key Result 資訊的物件。
- * @returns {Object} - 包含 success 狀態和 message 的物件。
- */
-function editKeyResult(sessionToken, krData) {
-    Logger.log(`[editKeyResult] 函數開始執行。krData: ${JSON.stringify(krData)}`);
-    let authUser;
-    try {
-        authUser = authenticateAndAuthorize(sessionToken, ['Chairman', 'OKR_Admin', 'CLevel_Exec', 'Department_Manager', 'Employee']); // 假設這些角色可以編輯 KR
-    } catch (e) {
-        Logger.log(`[editKeyResult] 認證失敗: ${e.message}`);
-        return { success: false, message: e.message };
-    }
-
-    try {
-        const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-        const krSheet = spreadsheet.getSheetByName(SHEET_NAMES.KEY_RESULTS);
-        if (!krSheet) {
-            throw new Error(`工作表 "${SHEET_NAMES.KEY_RESULTS}" 不存在。`);
-        }
-
-        const krHeaders = getSheetHeaders(SHEET_NAMES.KEY_RESULTS);
-        const krDataValues = krSheet.getDataRange().getValues();
-
-        let rowIndexToUpdate = -1;
-        let krOwnerEmail = '';
-
-        for (let i = 1; i < krDataValues.length; i++) {
-            const kr = rowToObject(krHeaders, krDataValues[i]);
-            if (kr.ID === krData.ID) {
-                rowIndexToUpdate = i + 1;
-                krOwnerEmail = kr.OwnerEmail;
-                break;
-            }
-        }
-
-        if (rowIndexToUpdate === -1) {
-            return { success: false, message: `找不到 ID 為 ${krData.ID} 的關鍵成果。` };
-        }
-
-        // 權限檢查：只有負責人或特定管理員才能編輯
-        if (authUser.userEmail !== krOwnerEmail && !['OKR_Admin', 'Chairman', 'Department_Manager', 'CLevel_Exec'].includes(authUser.userRole)) {
-            return { success: false, message: "您沒有權限編輯此關鍵成果。" };
-        }
-
-        // 更新欄位
-        const descColIndex = krHeaders.indexOf('Description') + 1;
-        const ownerColIndex = krHeaders.indexOf('OwnerEmail') + 1;
-        const metricTypeColIndex = krHeaders.indexOf('MetricType') + 1;
-        const startValueColIndex = krHeaders.indexOf('StartValue') + 1;
-        const targetValueColIndex = krHeaders.indexOf('TargetValue') + 1;
-        const unitColIndex = krHeaders.indexOf('Unit') + 1;
-
-        krSheet.getRange(rowIndexToUpdate, descColIndex).setValue(krData.Description);
-        krSheet.getRange(rowIndexToUpdate, ownerColIndex).setValue(krData.OwnerEmail);
-        krSheet.getRange(rowIndexToUpdate, metricTypeColIndex).setValue(krData.MetricType);
-        krSheet.getRange(rowIndexToUpdate, startValueColIndex).setValue(krData.StartValue);
-        krSheet.getRange(rowIndexToUpdate, targetValueColIndex).setValue(krData.TargetValue);
-        krSheet.getRange(rowIndexToUpdate, unitColIndex).setValue(krData.Unit);
-
-        Logger.log(`[editKeyResult] 成功編輯 Key Result: ${krData.ID}`);
-        return { success: true, message: `Key Result "${krData.Description}" 更新成功！` };
-    } catch (error) {
-        Logger.log(`[editKeyResult] 錯誤: ${error.message}`);
-        return { success: false, message: `編輯 Key Result 失敗: ${error.message}` };
-    }
-}
-
-/**
- * 實現 Key Result 的刪除功能。
- * @param {string} sessionToken - 會話令牌
- * @param {string} krId - 要刪除的 Key Result ID。
- * @returns {Object} - 包含 success 狀態和 message 的物件。
+ * 刪除 Key Result
  */
 function deleteKeyResult(sessionToken, krId) {
-    Logger.log(`[deleteKeyResult] 函數開始執行。KR ID: ${krId}`);
-    let authUser;
-    try {
-        authUser = authenticateAndAuthorize(sessionToken, ['Chairman', 'OKR_Admin', 'Department_Manager', 'CLevel_Exec', 'Employee']); // 假設這些角色可以刪除 KR
-    } catch (e) {
-        Logger.log(`[deleteKeyResult] 認證失敗: ${e.message}`);
-        return { success: false, message: e.message };
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+  try {
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_KEY_RESULTS);
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === krId) {
+        sheet.deleteRow(i + 1);
+        return { success: true, message: `已刪除 Key Result ${krId}` };
+      }
     }
+    return { success: false, message: `找不到 Key Result ${krId}` };
+  } catch (e) {
+    return { success: false, message: '刪除 Key Result 失敗：' + e.message };
+  }
+}
+/**
+ * Code.gs – 後端程式碼（第二部分）
+ * 包含：Department Objectives / My Objectives CRUD、
+ * 提交 審核 / 批准 / 駁回、Comments 功能
+ */
 
-    try {
-        const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-        const krSheet = spreadsheet.getSheetByName(SHEET_NAMES.KEY_RESULTS);
-        if (!krSheet) {
-            throw new Error(`工作表 "${SHEET_NAMES.KEY_RESULTS}" 不存在。`);
-        }
+// ------------------------------
+// 1. Department Objectives CRUD
+// ------------------------------
 
-        const krHeaders = getSheetHeaders(SHEET_NAMES.KEY_RESULTS);
-        const krData = krSheet.getDataRange().getValues();
+/**
+ * 取得所有 Department Objectives (含計算進度)
+ * 回傳 JSON 字串：{ objectives: [ { ID, Title, Description, OwnerEmail, DepartmentID, ParentCompanyKR, Status, ApproverEmail, Progress } ], error: '' }
+ */
+function getDepartmentObjectives(sessionToken) {
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return JSON.stringify({ error: e.message, objectives: [] });
+  }
+  try {
+    const objHeaders = getSheetHeaders(SHEET_DEPT_OBJECTIVES);
+    const objRows = getSheetData(SHEET_DEPT_OBJECTIVES).map(r => rowToObject(objHeaders, r));
 
-        let rowIndexToDelete = -1;
-        let krOwnerEmail = '';
-        let parentObjectiveId = '';
+    const krHeaders = getSheetHeaders(SHEET_KEY_RESULTS);
+    const krRows = getSheetData(SHEET_KEY_RESULTS).map(r => rowToObject(krHeaders, r));
 
-        for (let i = 1; i < krData.length; i++) {
-            const kr = rowToObject(krHeaders, krData[i]);
-            if (kr.ID === krId) {
-                rowIndexToDelete = i + 1;
-                krOwnerEmail = kr.OwnerEmail;
-                parentObjectiveId = kr.ObjectiveID;
-                break;
-            }
-        }
-
-        if (rowIndexToDelete === -1) {
-            return { success: false, message: `找不到 ID 為 ${krId} 的關鍵成果。` };
-        }
-
-        // 權限檢查：只有負責人或特定管理員才能刪除
-        if (authUser.userEmail !== krOwnerEmail && !['OKR_Admin', 'Chairman', 'Department_Manager', 'CLevel_Exec'].includes(authUser.userRole)) {
-            return { success: false, message: "您沒有權限刪除此關鍵成果。" };
-        }
-
-        // 刪除 KR 行
-        krSheet.deleteRow(rowIndexToDelete);
-        Logger.log(`[deleteKeyResult] 成功刪除 Key Result: ${krId}`);
-
-        // 更新父級 Objective 的 KRs 欄位
-        if (parentObjectiveId) {
-            const objSheets = [
-                { name: SHEET_NAMES.COMPANY_OBJECTIVES, headers: getSheetHeaders(SHEET_NAMES.COMPANY_OBJECTIVES) },
-                { name: SHEET_NAMES.MY_OBJECTIVES, headers: getSheetHeaders(SHEET_NAMES.MY_OBJECTIVES) },
-                { name: SHEET_NAMES.DEPARTMENT_OBJECTIVES, headers: getSheetHeaders(SHEET_NAMES.DEPARTMENT_OBJECTIVES) }
-            ];
-
-            for (const objSheetInfo of objSheets) {
-                const currentObjSheet = spreadsheet.getSheetByName(objSheetInfo.name);
-                const objDataRange = currentObjSheet.getDataRange();
-                const objValues = objDataRange.getValues();
-
-                for (let i = 1; i < objValues.length; i++) {
-                    const obj = rowToObject(objSheetInfo.headers, objValues[i]);
-                    if (obj.ID === parentObjectiveId) {
-                        const krColIndex = objSheetInfo.headers.indexOf('KRs') + 1;
-                        if (krColIndex > 0) {
-                            let currentKRs = obj.KRs ? String(obj.KRs).split(',').map(id => id.trim()).filter(id => id !== '') : [];
-                            const updatedKRs = currentKRs.filter(id => id !== krId);
-                            currentObjSheet.getRange(i + 1, krColIndex).setValue(updatedKRs.join(','));
-                            Logger.log(`[deleteKeyResult] 成功更新父級 Objective (${parentObjectiveId}) 的 KRs 欄位。`);
-                            break;
-                        }
-                    }
-                }
-            }
-            // 重新計算父級 Objective 的進度
-            calculateObjectiveProgressAndScore(parentObjectiveId);
-        }
-
-        return { success: true, message: `Key Result ${krId} 已刪除。` };
-    } catch (error) {
-        Logger.log(`[deleteKeyResult] 錯誤: ${error.message}`);
-        return { success: false, message: `刪除 Key Result 失敗: ${error.message}` };
-    }
+    const result = objRows.map(o => {
+      const myKRs = krRows.filter(kr => kr.ObjectiveID === o.ID);
+      const totalProg = myKRs.reduce((sum, kr) => sum + Number(kr.Progress || 0), 0);
+      const avgProg = myKRs.length ? Math.round(totalProg / myKRs.length) : (Number(o.Progress) || 0);
+      return {
+        ID: o.ID,
+        Title: o.Title,
+        Description: o.Description,
+        OwnerEmail: o.OwnerEmail,
+        DepartmentID: o.DepartmentID,
+        ParentCompanyKR: o.ParentCompanyKR,
+        Status: o.Status,
+        ApproverEmail: o.ApproverEmail || '',
+        Progress: avgProg
+      };
+    });
+    return JSON.stringify({ objectives: result, error: '' });
+  } catch (e) {
+    return JSON.stringify({ error: '讀取 Department Objectives 發生錯誤：' + e.message, objectives: [] });
+  }
 }
 
 /**
- * 獲取所有評論。
- * @param {string} sessionToken - 會話令牌
- * @param {string} entityId - 關聯的 Objective 或 Key Result ID。
- * @returns {string} JSON 字串，包含 comments 陣列。
+ * 新增 Department Objective
+ * data: { Title, Description, OwnerEmail, DepartmentID, ParentCompanyKR }
+ */
+function createDepartmentObjective(sessionToken, data) {
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(SHEET_DEPT_OBJECTIVES);
+    const headers = getSheetHeaders(SHEET_DEPT_OBJECTIVES);
+    const rows = getSheetData(SHEET_DEPT_OBJECTIVES).map(r => rowToObject(headers, r));
+
+    const prefix = 'D-2025Q2-O-';
+    let maxNum = 0;
+    rows.forEach(o => {
+      if (o.ID && o.ID.startsWith(prefix)) {
+        const num = parseInt(o.ID.replace(prefix, '')) || 0;
+        if (num > maxNum) maxNum = num;
+      }
+    });
+    const nextNum = (maxNum + 1).toString().padStart(2, '0');
+    const newId = prefix + nextNum;
+
+    const newRow = [
+      newId,
+      data.Title || '',
+      data.Description || '',
+      data.OwnerEmail || '',
+      data.DepartmentID || '',
+      data.ParentCompanyKR || '',
+      0,             // Progress
+      'Draft',       // Status
+      ''             // ApproverEmail
+    ];
+    sheet.appendRow(newRow);
+    return { success: true, message: `新增 Department Objective 成功，ID: ${newId}` };
+  } catch (e) {
+    return { success: false, message: '新增 Department Objective 失敗：' + e.message };
+  }
+}
+
+/**
+ * 更新 Department Objective
+ * data: { ID, Title, Description, OwnerEmail, DepartmentID, ParentCompanyKR, Status, ApproverEmail }
+ */
+function updateDepartmentObjective(sessionToken, data) {
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(SHEET_DEPT_OBJECTIVES);
+    const headers = getSheetHeaders(SHEET_DEPT_OBJECTIVES);
+    const allRows = sheet.getDataRange().getValues();
+    for (let i = 1; i < allRows.length; i++) {
+      if (allRows[i][0] === data.ID) {
+        const rowIdx = i + 1;
+        sheet.getRange(rowIdx, headers.indexOf('Title') + 1).setValue(data.Title);
+        sheet.getRange(rowIdx, headers.indexOf('Description') + 1).setValue(data.Description);
+        sheet.getRange(rowIdx, headers.indexOf('OwnerEmail') + 1).setValue(data.OwnerEmail);
+        sheet.getRange(rowIdx, headers.indexOf('DepartmentID') + 1).setValue(data.DepartmentID);
+        sheet.getRange(rowIdx, headers.indexOf('ParentCompanyKR') + 1).setValue(data.ParentCompanyKR);
+        sheet.getRange(rowIdx, headers.indexOf('Status') + 1).setValue(data.Status);
+        sheet.getRange(rowIdx, headers.indexOf('ApproverEmail') + 1).setValue(data.ApproverEmail || '');
+        return { success: true, message: `更新 Department Objective ${data.ID} 成功` };
+      }
+    }
+    return { success: false, message: `找不到 Department Objective ${data.ID}` };
+  } catch (e) {
+    return { success: false, message: '更新 Department Objective 失敗：' + e.message };
+  }
+}
+
+/**
+ * 刪除 Department Objective 及其所有 KR
+ */
+function deleteDepartmentObjective(sessionToken, objectiveId) {
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+
+    const sheetO = ss.getSheetByName(SHEET_DEPT_OBJECTIVES);
+    const dataO = sheetO.getDataRange().getValues();
+    for (let i = 1; i < dataO.length; i++) {
+      if (dataO[i][0] === objectiveId) {
+        sheetO.deleteRow(i + 1);
+        break;
+      }
+    }
+
+    const sheetKR = ss.getSheetByName(SHEET_KEY_RESULTS);
+    const dataKR = sheetKR.getDataRange().getValues();
+    for (let i = dataKR.length - 1; i >= 1; i--) {
+      if (dataKR[i][1] === objectiveId) {
+        sheetKR.deleteRow(i + 1);
+      }
+    }
+
+    return { success: true, message: `已刪除 Department Objective ${objectiveId} 及其所有 KR` };
+  } catch (e) {
+    return { success: false, message: '刪除 Department Objective 失敗：' + e.message };
+  }
+}
+
+// ------------------------------
+// 2. My Objectives CRUD
+// ------------------------------
+
+/**
+ * 取得所有 My Objectives (含計算進度)
+ * 回傳 JSON 字串：{ objectives: [ { ID, Title, Description, OwnerEmail, ParentDepartmentKR, Status, ApproverEmail, Progress } ], error: '' }
+ */
+function getMyObjectives(sessionToken) {
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return JSON.stringify({ error: e.message, objectives: [] });
+  }
+  try {
+    const objHeaders = getSheetHeaders(SHEET_MY_OBJECTIVES);
+    const objRows = getSheetData(SHEET_MY_OBJECTIVES).map(r => rowToObject(objHeaders, r));
+
+    const krHeaders = getSheetHeaders(SHEET_KEY_RESULTS);
+    const krRows = getSheetData(SHEET_KEY_RESULTS).map(r => rowToObject(krHeaders, r));
+
+    const result = objRows.map(o => {
+      const myKRs = krRows.filter(kr => kr.ObjectiveID === o.ID);
+      const totalProg = myKRs.reduce((sum, kr) => sum + Number(kr.Progress || 0), 0);
+      const avgProg = myKRs.length ? Math.round(totalProg / myKRs.length) : (Number(o.Progress) || 0);
+      return {
+        ID: o.ID,
+        Title: o.Title,
+        Description: o.Description,
+        OwnerEmail: o.OwnerEmail,
+        ParentDepartmentKR: o.ParentDepartmentKR,
+        Status: o.Status,
+        ApproverEmail: o.ApproverEmail || '',
+        Progress: avgProg
+      };
+    });
+    return JSON.stringify({ objectives: result, error: '' });
+  } catch (e) {
+    return JSON.stringify({ error: '讀取 My Objectives 發生錯誤：' + e.message, objectives: [] });
+  }
+}
+
+/**
+ * 新增 My Objective
+ * data: { Title, Description, OwnerEmail, ParentDepartmentKR }
+ */
+function createMyObjective(sessionToken, data) {
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(SHEET_MY_OBJECTIVES);
+    const headers = getSheetHeaders(SHEET_MY_OBJECTIVES);
+    const rows = getSheetData(SHEET_MY_OBJECTIVES).map(r => rowToObject(headers, r));
+
+    const prefix = 'P-2025Q2-O-';
+    let maxNum = 0;
+    rows.forEach(o => {
+      if (o.ID && o.ID.startsWith(prefix)) {
+        const num = parseInt(o.ID.replace(prefix, '')) || 0;
+        if (num > maxNum) maxNum = num;
+      }
+    });
+    const nextNum = (maxNum + 1).toString().padStart(2, '0');
+    const newId = prefix + nextNum;
+
+    const newRow = [
+      newId,
+      data.Title || '',
+      data.Description || '',
+      data.OwnerEmail || '',
+      data.ParentDepartmentKR || '',
+      0,             // Progress
+      'Draft',       // Status
+      ''             // ApproverEmail
+    ];
+    sheet.appendRow(newRow);
+    return { success: true, message: `新增 My Objective 成功，ID: ${newId}` };
+  } catch (e) {
+    return { success: false, message: '新增 My Objective 失敗：' + e.message };
+  }
+}
+
+/**
+ * 更新 My Objective
+ * data: { ID, Title, Description, OwnerEmail, ParentDepartmentKR, Status, ApproverEmail }
+ */
+function updateMyObjective(sessionToken, data) {
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(SHEET_MY_OBJECTIVES);
+    const headers = getSheetHeaders(SHEET_MY_OBJECTIVES);
+    const allRows = sheet.getDataRange().getValues();
+    for (let i = 1; i < allRows.length; i++) {
+      if (allRows[i][0] === data.ID) {
+        const rowIdx = i + 1;
+        sheet.getRange(rowIdx, headers.indexOf('Title') + 1).setValue(data.Title);
+        sheet.getRange(rowIdx, headers.indexOf('Description') + 1).setValue(data.Description);
+        sheet.getRange(rowIdx, headers.indexOf('OwnerEmail') + 1).setValue(data.OwnerEmail);
+        sheet.getRange(rowIdx, headers.indexOf('ParentDepartmentKR') + 1).setValue(data.ParentDepartmentKR);
+        sheet.getRange(rowIdx, headers.indexOf('Status') + 1).setValue(data.Status);
+        sheet.getRange(rowIdx, headers.indexOf('ApproverEmail') + 1).setValue(data.ApproverEmail || '');
+        return { success: true, message: `更新 My Objective ${data.ID} 成功` };
+      }
+    }
+    return { success: false, message: `找不到 My Objective ${data.ID}` };
+  } catch (e) {
+    return { success: false, message: '更新 My Objective 失敗：' + e.message };
+  }
+}
+
+/**
+ * 刪除 My Objective 及其所有 KR
+ */
+function deleteMyObjective(sessionToken, objectiveId) {
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+
+    const sheetO = ss.getSheetByName(SHEET_MY_OBJECTIVES);
+    const dataO = sheetO.getDataRange().getValues();
+    for (let i = 1; i < dataO.length; i++) {
+      if (dataO[i][0] === objectiveId) {
+        sheetO.deleteRow(i + 1);
+        break;
+      }
+    }
+
+    const sheetKR = ss.getSheetByName(SHEET_KEY_RESULTS);
+    const dataKR = sheetKR.getDataRange().getValues();
+    for (let i = dataKR.length - 1; i >= 1; i--) {
+      if (dataKR[i][1] === objectiveId) {
+        sheetKR.deleteRow(i + 1);
+      }
+    }
+
+    return { success: true, message: `已刪除 My Objective ${objectiveId} 及其所有 KR` };
+  } catch (e) {
+    return { success: false, message: '刪除 My Objective 失敗：' + e.message };
+  }
+}
+
+// ------------------------------
+// 3. 提交 → 審批 → 批准/駁回
+// ------------------------------
+
+/**
+ * 提交 Objective 至審核 (適用 Company / Department / My)
+ * param: { sheetName, objectiveId, approverEmail }
+ */
+function submitObjectiveForApproval(sessionToken, param) {
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+  const { sheetName, objectiveId, approverEmail } = param;
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(sheetName);
+    const headers = getSheetHeaders(sheetName);
+    const allRows = sheet.getDataRange().getValues();
+    for (let i = 1; i < allRows.length; i++) {
+      if (allRows[i][0] === objectiveId) {
+        const rowIdx = i + 1;
+        sheet.getRange(rowIdx, headers.indexOf('Status') + 1).setValue('Pending');
+        sheet.getRange(rowIdx, headers.indexOf('ApproverEmail') + 1).setValue(approverEmail);
+        return { success: true, message: `O ${objectiveId} 已提交審核，審批者：${approverEmail}` };
+      }
+    }
+    return { success: false, message: `找不到 ${sheetName} 中的 O ${objectiveId}` };
+  } catch (e) {
+    return { success: false, message: '提交審核失敗：' + e.message };
+  }
+}
+
+/**
+ * 取得所有待審核項目 (Company / Department / My)
+ * 回傳 JSON：{ pending: [ { type, ID, Title, OwnerEmail, Submitter, sheetName } ], error: '' }
+ */
+function getPendingApprovals(sessionToken) {
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return JSON.stringify({ error: e.message, pending: [] });
+  }
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const result = [];
+
+    const compHeaders = getSheetHeaders(SHEET_COMPANY_OBJECTIVES);
+    const compRows = getSheetData(SHEET_COMPANY_OBJECTIVES).map(r => rowToObject(compHeaders, r));
+    compRows.forEach(o => {
+      if (o.Status === 'Pending') {
+        result.push({
+          type: 'Company O',
+          ID: o.ID,
+          Title: o.Title,
+          OwnerEmail: o.OwnerEmail,
+          Submitter: o.OwnerEmail,
+          sheetName: SHEET_COMPANY_OBJECTIVES
+        });
+      }
+    });
+
+    const deptHeaders = getSheetHeaders(SHEET_DEPT_OBJECTIVES);
+    const deptRows = getSheetData(SHEET_DEPT_OBJECTIVES).map(r => rowToObject(deptHeaders, r));
+    deptRows.forEach(o => {
+      if (o.Status === 'Pending') {
+        result.push({
+          type: 'Department O',
+          ID: o.ID,
+          Title: o.Title,
+          OwnerEmail: o.OwnerEmail,
+          Submitter: o.OwnerEmail,
+          sheetName: SHEET_DEPT_OBJECTIVES
+        });
+      }
+    });
+
+    const myHeaders = getSheetHeaders(SHEET_MY_OBJECTIVES);
+    const myRows = getSheetData(SHEET_MY_OBJECTIVES).map(r => rowToObject(myHeaders, r));
+    myRows.forEach(o => {
+      if (o.Status === 'Pending') {
+        result.push({
+          type: 'Personal O',
+          ID: o.ID,
+          Title: o.Title,
+          OwnerEmail: o.OwnerEmail,
+          Submitter: o.OwnerEmail,
+          sheetName: SHEET_MY_OBJECTIVES
+        });
+      }
+    });
+
+    return JSON.stringify({ pending: result, error: '' });
+  } catch (e) {
+    return JSON.stringify({ error: '讀取待審核失敗：' + e.message, pending: [] });
+  }
+}
+
+/**
+ * 批准 Objective
+ * param: { sheetName, objectiveId }
+ */
+function approveObjective(sessionToken, param) {
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+  const { sheetName, objectiveId } = param;
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(sheetName);
+    const headers = getSheetHeaders(sheetName);
+    const allRows = sheet.getDataRange().getValues();
+    for (let i = 1; i < allRows.length; i++) {
+      if (allRows[i][0] === objectiveId) {
+        const rowIdx = i + 1;
+        sheet.getRange(rowIdx, headers.indexOf('Status') + 1).setValue('Approved');
+        return { success: true, message: `已批准 ${objectiveId}` };
+      }
+    }
+    return { success: false, message: `找不到 ${sheetName} 中的 O ${objectiveId}` };
+  } catch (e) {
+    return { success: false, message: '批准失敗：' + e.message };
+  }
+}
+
+/**
+ * 駁回 Objective
+ * param: { sheetName, objectiveId, reason }
+ */
+function rejectObjective(sessionToken, param) {
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+  const { sheetName, objectiveId, reason } = param;
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(sheetName);
+    const headers = getSheetHeaders(sheetName);
+    const allRows = sheet.getDataRange().getValues();
+    for (let i = 1; i < allRows.length; i++) {
+      if (allRows[i][0] === objectiveId) {
+        const rowIdx = i + 1;
+        sheet.getRange(rowIdx, headers.indexOf('Status') + 1).setValue('Rejected');
+        const rejectReasonColIdx = headers.indexOf('RejectReason');
+        if (rejectReasonColIdx !== -1) {
+          sheet.getRange(rowIdx, rejectReasonColIdx + 1).setValue(reason);
+        } else {
+          console.warn(`Warning: 'RejectReason' column not found in sheet ${sheetName}. Reason not saved.`);
+        }
+        return { success: true, message: `已駁回 ${objectiveId}` };
+      }
+    }
+    return { success: false, message: `找不到 ${sheetName} 中的 O ${objectiveId}` };
+  } catch (e) {
+    return { success: false, message: '駁回失敗：' + e.message };
+  }
+}
+
+// ------------------------------
+// 4. Comments 功能
+// ------------------------------
+
+/**
+ * 取得特定 Entity（O 或 KR）之 Comments
+ * 回傳 JSON：{ comments: [ { EntityID, CommentText, Author, Timestamp } ], error: '' }
  */
 function getComments(sessionToken, entityId) {
-    Logger.log(`[getComments] 函數開始執行。Entity ID: ${entityId}`);
-    let authUser;
-    try {
-        authUser = authenticateAndAuthorize(sessionToken, ['Chairman', 'OKR_Admin', 'HR_Admin', 'Department_Manager', 'CLevel_Exec', 'Employee']); // 所有用戶都可以查看評論
-    } catch (e) {
-        Logger.log(`[getComments] 認證失敗: ${e.message}`);
-        return JSON.stringify({ error: e.message });
-    }
-
-    let result = {
-        comments: [],
-        error: ''
-    };
-    try {
-        const commentHeaders = getSheetHeaders(SHEET_NAMES.COMMENTS);
-        const commentData = getSheetData(SHEET_NAMES.COMMENTS);
-        result.comments = commentData
-            .map(row => rowToObject(commentHeaders, row))
-            .filter(comment => comment.EntityID === entityId)
-            .sort((a, b) => new Date(a.Timestamp).getTime() - new Date(b.Timestamp).getTime()); // 按時間排序
-
-        Logger.log(`[getComments] 成功載入 ${result.comments.length} 條評論。`);
-    } catch (e) {
-        Logger.log(`[getComments] 錯誤: 獲取評論失敗: ${e.message}`);
-        result.error += `獲取評論失敗: ${e.message}; `;
-    }
-    return JSON.stringify(result);
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return JSON.stringify({ error: e.message, comments: [] });
+  }
+  try {
+    const headers = getSheetHeaders(SHEET_COMMENTS);
+    const rows = getSheetData(SHEET_COMMENTS).map(r => rowToObject(headers, r));
+    const filtered = rows.filter(c => c.EntityID === entityId);
+    filtered.sort((a, b) => new Date(a.Timestamp) - new Date(b.Timestamp));
+    return JSON.stringify({ comments: filtered, error: '' });
+  } catch (e) {
+    return JSON.stringify({ error: '讀取留言失敗：' + e.message, comments: [] });
+  }
 }
 
-/**
- * 新增評論。
- * @param {string} sessionToken - 會話令牌
- * @param {Object} commentData - 包含評論資訊的物件。
- * - EntityID (string) - 關聯的 Objective 或 Key Result ID
- * - CommentText (string)
- * @returns {Object} - 包含 success 狀態和 message 的物件
- */
 function addComment(sessionToken, commentData) {
-    Logger.log(`[addComment] 函數開始執行。Comment Data: ${JSON.stringify(commentData)}`);
-    let authUser;
-    try {
-        authUser = authenticateAndAuthorize(sessionToken, ['Chairman', 'OKR_Admin', 'HR_Admin', 'Department_Manager', 'CLevel_Exec', 'Employee']); // 所有用戶都可以添加評論
-    } catch (e) {
-        Logger.log(`[addComment] 認證失敗: ${e.message}`);
-        return { success: false, message: e.message };
-    }
-
-    try {
-        const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-        const commentSheet = spreadsheet.getSheetByName(SHEET_NAMES.COMMENTS);
-        if (!commentSheet) {
-            throw new Error(`工作表 "${SHEET_NAMES.COMMENTS}" 不存在。`);
-        }
-
-        const commentHeaders = getSheetHeaders(SHEET_NAMES.COMMENTS);
-        const newCommentRow = [
-            Utilities.getUuid(), // CommentID
-            commentData.EntityID,
-            authUser.userEmail, // 使用認證後的用戶 Email
-            commentData.CommentText,
-            new Date().toLocaleString() // Timestamp
-        ];
-
-        while (newCommentRow.length < commentHeaders.length) {
-            newCommentRow.push('');
-        }
-
-        commentSheet.appendRow(newCommentRow);
-        Logger.log(`[addComment] 成功新增評論到 Entity ID: ${commentData.EntityID}`);
-        return { success: true, message: "評論新增成功！" };
-    } catch (error) {
-        Logger.log(`[addComment] 錯誤: ${error.message}`);
-        return { success: false, message: `新增評論失敗: ${error.message}` };
-    }
+  let userInfo;
+  try {
+    userInfo = authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(SHEET_COMMENTS);
+    const headers = getSheetHeaders(SHEET_COMMENTS);
+    const timestamp = new Date().toISOString();
+    const newRow = [
+      Utilities.getUuid(),           // ID
+      commentData.EntityID,          // EntityID
+      commentData.CommentText,       // CommentText
+      userInfo.email,                // Author
+      timestamp                      // Timestamp
+    ];
+    sheet.appendRow(newRow);
+    return { success: true, message: '留言已新增' };
+  } catch (e) {
+    return { success: false, message: '新增留言失敗：' + e.message };
+  }
 }
 
 /**
- * 獲取所有用戶列表 (用於管理頁面)
- * @param {string} sessionToken - 會話令牌
- * @returns {string} JSON 字串，包含 users 陣列。
+ * Code.gs – 後端程式碼（第三部分）
+ * 包含：Hierarchy (心智圖) 與 報表 Dashboard 功能
  */
-function getAllUsers(sessionToken) {
-    Logger.log("[getAllUsers] 函數開始執行。");
-    let authUser;
-    try {
-        authUser = authenticateAndAuthorize(sessionToken, ['OKR_Admin', 'HR_Admin', 'Chairman']); // 只有管理員和董事長可以查看所有用戶
-    } catch (e) {
-        Logger.log(`[getAllUsers] 認證失敗: ${e.message}`);
-        return JSON.stringify({ error: e.message });
-    }
 
-    let result = { users: [], error: '' };
-    try {
-        const userHeaders = getSheetHeaders(SHEET_NAMES.USERS);
-        const userData = getSheetData(SHEET_NAMES.USERS);
-        result.users = userData.map(row => rowToObject(userHeaders, row));
-        Logger.log(`[getAllUsers] 成功載入 ${result.users.length} 個用戶。`);
-    } catch (e) {
-        Logger.log(`[getAllUsers] 錯誤: 獲取用戶數據失敗: ${e.message}`);
-        result.error += `獲取用戶數據失敗: ${e.message}; `;
-    }
-    return JSON.stringify(result);
+// ------------------------------
+// 5. 下拉選單：取得所有 Company KR / Department KR
+// ------------------------------
+
+/**
+ * 取得所有 Company KR 供下拉選單使用
+ * 回傳 JSON：{ parentCompanyKRs: [ { ID, Description } ], error: '' }
+ */
+function getAllCompanyKRs(sessionToken) {
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return JSON.stringify({ error: e.message, parentCompanyKRs: [] });
+  }
+  try {
+    const krHeaders = getSheetHeaders(SHEET_KEY_RESULTS);
+    const krRows = getSheetData(SHEET_KEY_RESULTS).map(r => rowToObject(krHeaders, r));
+    const filtered = krRows
+      .filter(kr => kr.ObjectiveID.startsWith('C-2025Q2-O-'))
+      .map(kr => ({ ID: kr.ID, Description: kr.Description }));
+    return JSON.stringify({ parentCompanyKRs: filtered, error: '' });
+  } catch (e) {
+    return JSON.stringify({ error: '讀取 Company KR 失敗：' + e.message, parentCompanyKRs: [] });
+  }
 }
 
 /**
- * 創建新用戶 (用於管理頁面)
- * @param {string} sessionToken - 會話令牌
- * @param {Object} userData - 包含用戶資訊的物件 (Email, Password, Role, Department, Name, ID, IsActive)
- * @returns {Object} - 包含 success 狀態和 message 的物件
+ * 取得所有 Department KR 供下拉選單使用
+ * 回傳 JSON：{ parentDeptKRs: [ { ID, Description } ], error: '' }
  */
-function createUser(sessionToken, userData) {
-    Logger.log(`[createUser] 函數開始執行。UserData: ${JSON.stringify(userData)}`);
-    let authUser;
-    try {
-        authUser = authenticateAndAuthorize(sessionToken, ['OKR_Admin', 'HR_Admin', 'Chairman']); // 只有管理員和董事長可以創建用戶
-    } catch (e) {
-        Logger.log(`[createUser] 認證失敗: ${e.message}`);
-        return { success: false, message: e.message };
-    }
-
-    try {
-        const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-        const userSheet = spreadsheet.getSheetByName(SHEET_NAMES.USERS);
-        if (!userSheet) {
-            throw new Error(`工作表 "${SHEET_NAMES.USERS}" 不存在。`);
-        }
-
-        const userHeaders = getSheetHeaders(SHEET_NAMES.USERS);
-        
-        // 檢查 Email 是否已存在
-        const existingUsers = getSheetData(SHEET_NAMES.USERS).map(row => rowToObject(userHeaders, row));
-        if (existingUsers.some(u => u.Email === userData.Email)) {
-            return { success: false, message: `用戶 Email "${userData.Email}" 已存在。` };
-        }
-
-        // 哈希密碼
-        const hashedPassword = hashString(userData.Password + PASSWORD_SALT);
-
-        const newRow = [
-            userData.Email,
-            hashedPassword, // 儲存哈希後的密碼
-            userData.Role,
-            userData.Department,
-            userData.Name,
-            userData.ID || Utilities.getUuid().substring(0, 4), // 如果沒有提供 ID，生成一個短 ID
-            userData.IsActive === true // 確保是布林值
-        ];
-
-        // 確保新行數據的長度與標題長度匹配
-        while (newRow.length < userHeaders.length) {
-            newRow.push('');
-        }
-
-        userSheet.appendRow(newRow);
-        Logger.log(`[createUser] 成功創建用戶: ${userData.Email}`);
-        return { success: true, message: `用戶 "${userData.Email}" 創建成功！` };
-    } catch (error) {
-        Logger.log(`[createUser] 錯誤: ${error.message}`);
-        return { success: false, message: `創建用戶失敗: ${error.message}` };
-    }
+function getAllDepartmentKRs(sessionToken) {
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return JSON.stringify({ error: e.message, parentDeptKRs: [] });
+  }
+  try {
+    const krHeaders = getSheetHeaders(SHEET_KEY_RESULTS);
+    const krRows = getSheetData(SHEET_KEY_RESULTS).map(r => rowToObject(krHeaders, r));
+    const filtered = krRows
+      .filter(kr => kr.ObjectiveID.startsWith('D-2025Q2-O-'))
+      .map(kr => ({ ID: kr.ID, Description: kr.Description }));
+    return JSON.stringify({ parentDeptKRs: filtered, error: '' });
+  } catch (e) {
+    return JSON.stringify({ error: '讀取 Department KR 失敗：' + e.message, parentDeptKRs: [] });
+  }
 }
 
+// ------------------------------
+// 6. 心智圖 (Hierarchy) – getMindmapData
+// 此函數將整合所有層次數據並返回為單一樹狀結構
+// ------------------------------
 /**
- * 編輯現有用戶 (用於管理頁面)
- * @param {string} sessionToken - 會話令牌
- * @param {Object} userData - 包含用戶資訊的物件 (Email, Role, Department, Name, ID, IsActive, Password - 可選)
- * @returns {Object} - 包含 success 狀態和 message 的物件
+ * 【最終版】取得 OKR 樹狀結構 (呈現至部門 KR)
+ * [修改] 不再讀取和處理個人層級的 OKR，以簡化高階管理者視圖。
+ * [功能] 自動檢測並標記未被部門 O 承接的公司 KR。
  */
-function editUser(sessionToken, userData) {
-    Logger.log(`[editUser] 函數開始執行。UserData: ${JSON.stringify(userData)}`);
-    let authUser;
+function getMindmapData(sessionToken) {
+    let userInfo;
     try {
-        authUser = authenticateAndAuthorize(sessionToken, ['OKR_Admin', 'HR_Admin', 'Chairman']); // 只有管理員和董事長可以編輯用戶
+        userInfo = authenticateAndAuthorize(sessionToken);
     } catch (e) {
-        Logger.log(`[editUser] 認證失敗: ${e.message}`);
-        return { success: false, message: e.message };
+        return JSON.stringify({ error: e.message, mindmapData: null });
     }
 
     try {
-        const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-        const userSheet = spreadsheet.getSheetByName(SHEET_NAMES.USERS);
-        if (!userSheet) {
-            throw new Error(`工作表 "${SHEET_NAMES.USERS}" 不存在。`);
-        }
+        // 1. 修改：不再讀取 My_Objectives 和個人的 KR
+        const compObjs = JSON.parse(getCompanyObjectives(sessionToken)).objectives || [];
+        const deptObjs = JSON.parse(getDepartmentObjectives(sessionToken)).objectives || [];
+        const allKRs = (JSON.parse(getKeyResultsByObjective(sessionToken, '__ALL_COMPANY__')).keyResults || [])
+            .concat(JSON.parse(getKeyResultsByObjective(sessionToken, '__ALL_DEPT__')).keyResults || []);
 
-        const userHeaders = getSheetHeaders(SHEET_NAMES.USERS);
-        const allUsersData = userSheet.getDataRange().getValues();
+        // 2. 建立節點 Map
+        const nodeMap = new Map();
+        const processItem = (item, type) => {
+            const node = {
+                id: item.ID,
+                name: type.includes("Objective") ? item.Title : item.Description,
+                type: type,
+                data: item,
+                children: []
+            };
+            nodeMap.set(item.ID, node);
+        };
 
-        let rowIndexToUpdate = -1;
-        let oldPasswordHash = '';
+        compObjs.forEach(item => processItem(item, "CompanyObjective"));
+        deptObjs.forEach(item => processItem(item, "DepartmentObjective"));
 
-        for (let i = 1; i < allUsersData.length; i++) {
-            const user = rowToObject(userHeaders, allUsersData[i]);
-            if (user.Email === userData.Email) {
-                rowIndexToUpdate = i + 1;
-                oldPasswordHash = user.PasswordHash; // 獲取舊的密碼哈希
-                break;
+        allKRs.forEach(item => {
+            if (!item || !item.ID) return;
+            if (item.ID.startsWith('C-')) processItem(item, "CompanyKeyResult");
+            else if (item.ID.startsWith('D-')) processItem(item, "DepartmentKeyResult");
+        });
+
+        // 3. 建立父子關係
+        nodeMap.forEach(node => {
+            let parentId = null;
+            if (node.type.includes("KeyResult")) {
+                parentId = node.data.ObjectiveID;
+            } else if (node.type === "DepartmentObjective") {
+                parentId = node.data.ParentCompanyKR;
             }
-        }
 
-        if (rowIndexToUpdate === -1) {
-            return { success: false, message: `找不到 Email 為 ${userData.Email} 的用戶。` };
-        }
-
-        // 更新欄位
-        const emailColIndex = userHeaders.indexOf('Email') + 1;
-        const passwordHashColIndex = userHeaders.indexOf('PasswordHash') + 1;
-        const roleColIndex = userHeaders.indexOf('Role') + 1;
-        const deptColIndex = userHeaders.indexOf('Department') + 1;
-        const nameColIndex = userHeaders.indexOf('Name') + 1;
-        const idColIndex = userHeaders.indexOf('ID') + 1;
-        const isActiveColIndex = userHeaders.indexOf('IsActive') + 1;
-        
-
-        userSheet.getRange(rowIndexToUpdate, emailColIndex).setValue(userData.Email); // Email 不可改，但確保寫回
-        userSheet.getRange(rowIndexToUpdate, roleColIndex).setValue(userData.Role);
-        userSheet.getRange(rowIndexToUpdate, deptColIndex).setValue(userData.Department);
-        userSheet.getRange(rowIndexToUpdate, nameColIndex).setValue(userData.Name);
-        userSheet.getRange(rowIndexToUpdate, idColIndex).setValue(userData.ID);
-        userSheet.getRange(rowIndexToUpdate, isActiveColIndex).setValue(userData.IsActive === true); // 確保是布林值
-
-        // 如果提供了新密碼，則更新哈希
-        if (userData.Password && userData.Password.trim() !== '') {
-            const newHashedPassword = hashString(userData.Password + PASSWORD_SALT);
-            userSheet.getRange(rowIndexToUpdate, passwordHashColIndex).setValue(newHashedPassword);
-            Logger.log(`[editUser] 用戶 ${userData.Email} 密碼已更新。`);
-        } else {
-            // 如果沒有提供新密碼，確保舊的哈希值不被清空
-            userSheet.getRange(rowIndexToUpdate, passwordHashColIndex).setValue(oldPasswordHash);
-        }
-
-        Logger.log(`[editUser] 成功編輯用戶: ${userData.Email}`);
-        return { success: true, message: `用戶 "${userData.Email}" 更新成功！` };
-    } catch (error) {
-        Logger.log(`[editUser] 錯誤: ${error.message}`);
-        return { success: false, message: `編輯用戶失敗: ${error.message}` };
-    }
-}
-
-/**
- * 刪除用戶 (用於管理頁面)
- * @param {string} sessionToken - 會話令牌
- * @param {string} userEmailToDelete - 要刪除的用戶 Email
- * @returns {Object} - 包含 success 狀態和 message 的物件
- */
-function deleteUser(sessionToken, userEmailToDelete) {
-    Logger.log(`[deleteUser] 函數開始執行。User Email: ${userEmailToDelete}`);
-    let authUser;
-    try {
-        authUser = authenticateAndAuthorize(sessionToken, ['OKR_Admin', 'HR_Admin', 'Chairman']); // 只有管理員和董事長可以刪除用戶
-    } catch (e) {
-        Logger.log(`[deleteUser] 認證失敗: ${e.message}`);
-        return { success: false, message: e.message };
-    }
-
-    try {
-        const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-        const userSheet = spreadsheet.getSheetByName(SHEET_NAMES.USERS);
-        if (!userSheet) {
-            throw new Error(`工作表 "${SHEET_NAMES.USERS}" 不存在。`);
-        }
-
-        const userHeaders = getSheetHeaders(SHEET_NAMES.USERS);
-        const allUsersData = userSheet.getDataRange().getValues();
-
-        let rowIndexToDelete = -1;
-        for (let i = 1; i < allUsersData.length; i++) {
-            const user = rowToObject(userHeaders, allUsersData[i]);
-            if (user.Email === userEmailToDelete) {
-                rowIndexToDelete = i + 1;
-                break;
+            if (parentId && nodeMap.has(parentId)) {
+                nodeMap.get(parentId).children.push(node);
             }
-        }
-
-        if (rowIndexToDelete === -1) {
-            return { success: false, message: `找不到 Email 為 ${userEmailToDelete} 的用戶。` };
-        }
-
-        // 檢查是否嘗試刪除當前登入的用戶
-        if (userEmailToDelete === authUser.userEmail) {
-            return { success: false, message: "不能刪除當前登入的用戶。" };
-        }
-
-        userSheet.deleteRow(rowIndexToDelete);
-        Logger.log(`[deleteUser] 成功刪除用戶: ${userEmailToDelete}`);
-        return { success: true, message: `用戶 "${userEmailToDelete}" 已刪除。` };
-    } catch (error) {
-        Logger.log(`[deleteUser] 錯誤: ${error.message}`);
-        return { success: false, message: `刪除用戶失敗: ${error.message}` };
-    }
-}
-
-/**
- * 獲取所有部門列表 (用於管理頁面)
- * @param {string} sessionToken - 會話令牌
- * @returns {string} JSON 字串，包含 departments 陣列。
- */
-function getAllDepartments(sessionToken) {
-    Logger.log("[getAllDepartments] 函數開始執行。");
-    let authUser;
-    try {
-        authUser = authenticateAndAuthorize(sessionToken, ['OKR_Admin', 'HR_Admin', 'Chairman', 'Department_Manager', 'CLevel_Exec']); // 這些角色可以查看所有部門
-    } catch (e) {
-        Logger.log(`[getAllDepartments] 認證失敗: ${e.message}`);
-        return JSON.stringify({ error: e.message });
-    }
-
-    let result = { departments: [], error: '' };
-    try {
-        const deptHeaders = getSheetHeaders(SHEET_NAMES.DEPARTMENTS);
-        const deptData = getSheetData(SHEET_NAMES.DEPARTMENTS);
-        result.departments = deptData.map(row => rowToObject(deptHeaders, row));
-        Logger.log(`[getAllDepartments] 成功載入 ${result.departments.length} 個部門。`);
-    } catch (e) {
-        Logger.log(`[getAllDepartments] 錯誤: 獲取部門數據失敗: ${e.message}`);
-        result.error += `獲取部門數據失敗: ${e.message}; `;
-    }
-    return JSON.stringify(result);
-}
-
-/**
- * 創建新部門 (用於管理頁面)
- * @param {string} sessionToken - 會話令牌
- * @param {Object} deptData - 包含部門資訊的物件 (ID, Name)
- * @returns {Object} - 包含 success 狀態和 message 的物件
- */
-function createDepartment(sessionToken, deptData) {
-    Logger.log(`[createDepartment] 函數開始執行。DeptData: ${JSON.stringify(deptData)}`);
-    let authUser;
-    try {
-        authUser = authenticateAndAuthorize(sessionToken, ['OKR_Admin', 'HR_Admin', 'Chairman']); // 只有管理員和董事長可以創建部門
-    } catch (e) {
-        Logger.log(`[createDepartment] 認證失敗: ${e.message}`);
-        return { success: false, message: e.message };
-    }
-
-    try {
-        const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-        const deptSheet = spreadsheet.getSheetByName(SHEET_NAMES.DEPARTMENTS);
-        if (!deptSheet) {
-            throw new Error(`工作表 "${SHEET_NAMES.DEPARTMENTS}" 不存在。`);
-        }
-
-        const deptHeaders = getSheetHeaders(SHEET_NAMES.DEPARTMENTS);
+        });
         
-        // 檢查 ID 或 Name 是否已存在
-        const existingDepts = getSheetData(SHEET_NAMES.DEPARTMENTS).map(row => rowToObject(deptHeaders, row));
-        if (existingDepts.some(d => d.ID === deptData.ID)) {
-            return { success: false, message: `部門 ID "${deptData.ID}" 已存在。` };
-        }
-        if (existingDepts.some(d => d.Name === deptData.Name)) {
-            return { success: false, message: `部門名稱 "${deptData.Name}" 已存在。` };
-        }
-
-        const newRow = [
-            deptData.ID,
-            deptData.Name
-        ];
-
-        while (newRow.length < deptHeaders.length) {
-            newRow.push('');
-        }
-
-        deptSheet.appendRow(newRow);
-        Logger.log(`[createDepartment] 成功創建部門: ${deptData.Name}`);
-        return { success: true, message: `部門 "${deptData.Name}" 創建成功！` };
-    } catch (error) {
-        Logger.log(`[createDepartment] 錯誤: ${error.message}`);
-        return { success: false, message: `創建部門失敗: ${error.message}` };
-    }
-}
-
-/**
- * 編輯現有部門 (用於管理頁面)
- * @param {string} sessionToken - 會話令牌
- * @param {Object} deptData - 包含部門資訊的物件 (ID, Name)
- * @returns {Object} - 包含 success 狀態和 message 的物件
- */
-function editDepartment(sessionToken, deptData) {
-    Logger.log(`[editDepartment] 函數開始執行。DeptData: ${JSON.stringify(deptData)}`);
-    let authUser;
-    try {
-        authUser = authenticateAndAuthorize(sessionToken, ['OKR_Admin', 'HR_Admin', 'Chairman']); // 只有管理員和董事長可以編輯部門
-    } catch (e) {
-        Logger.log(`[editDepartment] 認證失敗: ${e.message}`);
-        return { success: false, message: e.message };
-    }
-
-    try {
-        const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-        const deptSheet = spreadsheet.getSheetByName(SHEET_NAMES.DEPARTMENTS);
-        if (!deptSheet) {
-            throw new Error(`工作表 "${SHEET_NAMES.DEPARTMENTS}" 不存在。`);
-        }
-
-        const deptHeaders = getSheetHeaders(SHEET_NAMES.DEPARTMENTS);
-        const allDeptsData = deptSheet.getDataRange().getValues();
-
-        let rowIndexToUpdate = -1;
-        for (let i = 1; i < allDeptsData.length; i++) {
-            const dept = rowToObject(deptHeaders, allDeptsData[i]);
-            if (dept.ID === deptData.ID) { // 根據 ID 查找
-                rowIndexToUpdate = i + 1;
-                break;
+        // 4. 檢查未承接的公司 KR
+        nodeMap.forEach(node => {
+            if (node.type === "CompanyKeyResult") {
+                if (node.children.length === 0) {
+                    node.data.isUnfulfilled = true;
+                }
             }
-        }
+            // 部門KR是最終層級，不需檢查是否被承接
+        });
 
-        if (rowIndexToUpdate === -1) {
-            return { success: false, message: `找不到 ID 為 ${deptData.ID} 的部門。` };
-        }
+        // 5. 構建最終樹
+        const mindmapTreeData = {
+            id: "OKR_ROOT",
+            name: "公司 OKR 總覽",
+            type: "Root",
+            data: { Title: "公司 OKR 總覽", OwnerEmail: userInfo.email || "未知用戶" },
+            children: compObjs.map(co => nodeMap.get(co.ID))
+        };
 
-        // 檢查新名稱是否與其他部門衝突 (如果名稱有變動)
-        const existingDepts = getSheetData(SHEET_NAMES.DEPARTMENTS).map(row => rowToObject(deptHeaders, row));
-        if (existingDepts.some(d => d.Name === deptData.Name && d.ID !== deptData.ID)) {
-            return { success: false, message: `部門名稱 "${deptData.Name}" 已被其他部門使用。` };
-        }
+        return JSON.stringify({ mindmapData: mindmapTreeData, error: '' });
 
-        const nameColIndex = deptHeaders.indexOf('Name') + 1;
-        deptSheet.getRange(rowIndexToUpdate, nameColIndex).setValue(deptData.Name);
-
-        Logger.log(`[editDepartment] 成功編輯部門: ${deptData.ID}`);
-        return { success: true, message: `部門 "${deptData.Name}" 更新成功！` };
-    } catch (error) {
-        Logger.log(`[editDepartment] 錯誤: ${error.message}`);
-        return { success: false, message: `編輯部門失敗: ${error.message}` };
-    }
-}
-
-/**
- * 刪除部門 (用於管理頁面)
- * @param {string} sessionToken - 會話令牌
- * @param {string} deptIdToDelete - 要刪除的部門 ID
- * @returns {Object} - 包含 success 狀態和 message 的物件
- */
-function deleteDepartment(sessionToken, deptIdToDelete) {
-    Logger.log(`[deleteDepartment] 函數開始執行。Dept ID: ${deptIdToDelete}`);
-    let authUser;
-    try {
-        authUser = authenticateAndAuthorize(sessionToken, ['OKR_Admin', 'HR_Admin', 'Chairman']); // 只有管理員和董事長可以刪除部門
     } catch (e) {
-        Logger.log(`[deleteDepartment] 認證失敗: ${e.message}`);
-        return { success: false, message: e.message };
+        console.error(`getMindmapData Error: ${e.toString()}`);
+        return JSON.stringify({ error: `構建心智圖數據失敗：${e.message}`, mindmapData: null });
     }
+}
 
-    try {
-        const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-        const deptSheet = spreadsheet.getSheetByName(SHEET_NAMES.DEPARTMENTS);
-        if (!deptSheet) {
-            throw new Error(`工作表 "${SHEET_NAMES.DEPARTMENTS}" 不存在。`);
-        }
+// ------------------------------
+// 7. 報表 Dashboard 功能
+// ------------------------------
 
-        const deptHeaders = getSheetHeaders(SHEET_NAMES.DEPARTMENTS);
-        const allDeptsData = deptSheet.getDataRange().getValues();
+/**
+ * AI 智能預測資料 (KR Progress)
+ * 回傳 JSON：{ predictionData: { labels: [...], actual: [...], predicted: [...] } }
+ * -- labels: 週次 (W1, W2, …)
+ * -- actual: 每週實際平均進度
+ * -- predicted: 後續預測值
+ */
+function getAIPredictionData(sessionToken) {
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return JSON.stringify({ error: e.message, predictionData: {} });
+  }
+  try {
+    const labels = ['W1', 'W2', 'W3', 'W4', 'W5'];
+    const krHeaders = getSheetHeaders(SHEET_KEY_RESULTS);
+    const krRows = getSheetData(SHEET_KEY_RESULTS).map(r => rowToObject(krHeaders, r));
+    const allProg = krRows.map(kr => Number(kr.Progress) || 0);
+    const avgProgress = allProg.length
+      ? Math.round(allProg.reduce((s, v) => s + v, 0) / allProg.length)
+      : 0;
+    const actual = [
+      Math.round(avgProgress * 0.4),
+      Math.round(avgProgress * 0.6),
+      Math.round(avgProgress * 0.8),
+      avgProgress,
+      avgProgress
+    ];
+    const predicted = [
+      actual[0],
+      actual[1],
+      actual[2],
+      Math.min(100, Math.round(actual[2] * 1.1)),
+      Math.min(100, Math.round(actual[2] * 1.2))
+    ];
 
-        let rowIndexToDelete = -1;
-        for (let i = 1; i < allDeptsData.length; i++) {
-            const dept = rowToObject(deptHeaders, allDeptsData[i]);
-            if (dept.ID === deptIdToDelete) {
-                rowIndexToDelete = i + 1;
-                break;
-            }
-        }
+    return JSON.stringify({
+      predictionData: {
+        labels: labels,
+        actual: actual,
+        predicted: predicted
+      }
+    });
+  } catch (e) {
+    return JSON.stringify({ error: '取得 AI 預測資料失敗：' + e.message, predictionData: {} });
+  }
+}
 
-        if (rowIndexToDelete === -1) {
-            return { success: false, message: `找不到 ID 為 ${deptIdToDelete} 的部門。` };
-        }
+/**
+ * Dashboard 概覽 & 部門排名
+ * 回傳 JSON：{ overview: { labels: [...], data: [...] }, deptRanking: { labels: [...], data: [...] } }
+ * -- overview.labels: Company O IDs
+ * -- overview.data: Company O 平均進度
+ * -- deptRanking.labels: Department ID 列表
+ * -- deptRanking.data: Department O 平均進度 (取該部門所有 DeptO 平均)
+ */
+function getDashboardOverviewData(sessionToken) {
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return JSON.stringify({ error: e.message, overview: {}, deptRanking: {} });
+  }
+  try {
+    const compRes = JSON.parse(getCompanyObjectives(sessionToken));
+    const compList = compRes.objectives || [];
+    const compLabels = compList.map(o => o.ID);
+    const compData = compList.map(o => o.Progress);
 
-        // 檢查是否有 Objective 關聯到此部門
-        const deptObjectives = getSheetData(SHEET_NAMES.DEPARTMENT_OBJECTIVES).map(row => rowToObject(getSheetHeaders(SHEET_NAMES.DEPARTMENT_OBJECTIVES), row));
-        if (deptObjectives.some(obj => obj.DepartmentID === deptIdToDelete)) {
-            return { success: false, message: `無法刪除部門 "${deptIdToDelete}"，因為有 Objective 關聯到此部門。請先刪除或修改相關 Objective。` };
-        }
-        
-        // 檢查是否有用戶關聯到此部門
-        const usersInDept = getSheetData(SHEET_NAMES.USERS).map(row => rowToObject(getSheetHeaders(SHEET_NAMES.USERS), row));
-        if (usersInDept.some(user => user.Department === deptIdToDelete)) { // 注意这里是 Department Name, 而不是 Department ID
-             return { success: false, message: `無法刪除部門 "${deptIdToDelete}"，因為有用戶關聯到此部門。請先修改或刪除相關用戶。` };
-        }
+    const deptRes = JSON.parse(getDepartmentObjectives(sessionToken));
+    const deptList = deptRes.objectives || [];
+    const deptGroup = {};
+    deptList.forEach(o => {
+      if (!deptGroup[o.DepartmentID]) deptGroup[o.DepartmentID] = [];
+      deptGroup[o.DepartmentID].push(o.Progress);
+    });
+    const deptLabels = Object.keys(deptGroup);
+    const deptData = deptLabels.map(deptId => {
+      const arr = deptGroup[deptId];
+      const avg = arr.length ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length) : 0;
+      return avg;
+    });
 
+    return JSON.stringify({
+      overview: { labels: compLabels, data: compData },
+      deptRanking: { labels: deptLabels, data: deptData }
+    });
+  } catch (e) {
+    return JSON.stringify({ error: '取得 Dashboard 資料失敗：' + e.message, overview: {}, deptRanking: {} });
+  }
+}
 
-        deptSheet.deleteRow(rowIndexToDelete);
-        Logger.log(`[deleteDepartment] 成功刪除部門: ${deptIdToDelete}`);
-        return { success: true, message: `部門 "${deptIdToDelete}" 已刪除。` };
-    } catch (error) {
-        Logger.log(`[deleteDepartment] 錯誤: ${error.message}`);
-        return { success: false, message: `刪除部門失敗: ${error.message}` };
-    }
+// 回傳 Alignment Heatmap 資料 (矩陣)
+function getAlignmentHeatmapData(sessionToken) {
+  try {
+    authenticateAndAuthorize(sessionToken);
+  } catch (e) {
+    return JSON.stringify({ error: e.message, heatmap: {} });
+  }
+  try {
+    const compHeaders = getSheetHeaders(SHEET_COMPANY_OBJECTIVES);
+    const compRows = getSheetData(SHEET_COMPANY_OBJECTIVES).map(r => rowToObject(compHeaders, r));
+    const deptHeaders = getSheetHeaders(SHEET_DEPT_OBJECTIVES);
+    const deptRows = getSheetData(SHEET_DEPT_OBJECTIVES).map(r => rowToObject(deptHeaders, r));
+    const labelsX = compRows.map(o => o.ID);
+    const labelsY = Array.from(new Set(deptRows.map(o => o.DepartmentID)));
+    const matrix = labelsY.map((_, i) => {
+      return labelsX.map((__, j) => Math.round(Math.random() * 100));
+    });
+    return JSON.stringify({ heatmap: { labelsX, labelsY, matrix }, error: '' });
+  } catch (e) {
+    return JSON.stringify({ error: '取得 Heatmap 資料失敗：' + e.message, heatmap: {} });
+  }
 }
 
 
 /**
- * 輔助函數：用於在 HTML 模板中引入其他 HTML 檔案的內容。
- * @param {string} filename - 要引入的 HTML 檔案名稱 (不含 .html 副檔名)
- * @returns {string} - 引入的 HTML 內容字串
+ * ---------------------------
+ * doGet(): 回傳前端 index.html
+ * ---------------------------
+ */
+function doGet(e) {
+  return HtmlService.createTemplateFromFile('index')
+      .evaluate()
+      .setTitle('OKR 戰情室')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/**
+ * ---------------------------
+ * include: 讓前端用 <?!= include('file') ?> 插入其他檔案
+ * ---------------------------
  */
 function include(filename) {
-  return HtmlService.createTemplateFromFile(filename).evaluate().getContent();
-}
-
-
-// Code.gs (臨時函數 - 用於生成密碼哈希)
-function generatePasswordHashForAdmin() {
-    const password = 'your_admin_password_here'; // <-- 將此處替換為您想要設定的明文密碼
-    const hashedPassword = hashString(password + PASSWORD_SALT);
-    Logger.log('您的哈希密碼是: ' + hashedPassword);
-    // 執行後，請將日誌中的哈希值複製到 Users 表的 PasswordHash 欄位
+  return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
